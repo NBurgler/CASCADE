@@ -7,8 +7,8 @@ import os
 import numpy as np
 from numpy.random import seed
 seed(1)
-from tensorflow import set_random_seed
-set_random_seed(2)
+import tensorflow
+tensorflow.random.set_seed(2)
 
 from nfp.preprocessing import MolPreprocessor, GraphSequence
 
@@ -17,21 +17,35 @@ import pickle
 import pandas as pd
 
 # Define Keras model
-import keras
-import keras.backend as K
+from tensorflow import keras
+import tensorflow.keras.backend as K
 
-from keras.callbacks import ModelCheckpoint, CSVLogger, LearningRateScheduler
+from tensorflow.keras.callbacks import ModelCheckpoint, CSVLogger, LearningRateScheduler
 
-from keras.layers import (Input, Embedding, Dense, BatchNormalization, Dropout,
+from tensorflow.keras.layers import (Input, Embedding, Dense, BatchNormalization, Dropout,
                                  Concatenate, Multiply, Add)
-
-from keras.models import Model, load_model
+from tensorflow.keras import models
 
 from nfp.layers import (MessageLayer, GRUStep, Squeeze, EdgeNetwork,
                                ReduceAtomToMol, ReduceBondToAtom,
                                GatherAtomToBond, ReduceAtomToPro)
 from nfp.models import GraphModel
 import argparse
+
+import wandb
+from wandb.keras import WandbCallback
+
+
+wandb.init(
+        project="nmr-prediction",
+        dir="/home/s3665828/Documents/Masters_Thesis/repo/CASCADE/code/predicting_model/H/DFTNN",
+        config={
+        "learning_rate": 5E-4,
+        "dataset": "cascade",
+        "epochts": 1200,
+        "setting": "default",
+    }
+)
 
 parser = argparse.ArgumentParser()
 parser.add_argument('-r', '--restart', action='store_true')
@@ -162,7 +176,7 @@ atom_state = Dense(1)(atom_state)
 
 output = Add()([atom_state, atomwise_shift])
 
-filepath = "/best_model.hdf5"
+filepath = "new_best_model.hdf5"
 
 lr = 5E-4
 epochs = 1200
@@ -181,7 +195,7 @@ else:
 
 model.summary()
     
-checkpoint = ModelCheckpoint(filepath, save_best_only=True, period=10, verbose=1)
+checkpoint = ModelCheckpoint(filepath, save_best_only=True, period=1, verbose=1)
 csv_logger = CSVLogger('log.csv')
 
 def decay_fn(epoch, learning_rate):
@@ -202,4 +216,4 @@ lr_decay = LearningRateScheduler(decay_fn)
 
 hist = model.fit_generator(train_sequence, validation_data=valid_sequence,
                            epochs=epochs, verbose=1, 
-                           callbacks=[checkpoint, csv_logger, lr_decay])
+                           callbacks=[checkpoint, csv_logger, lr_decay, WandbCallback()])

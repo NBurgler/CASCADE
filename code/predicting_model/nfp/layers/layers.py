@@ -1,13 +1,13 @@
-from keras.engine import Layer
+from tensorflow.keras.layers import Layer
 
-from keras import activations
-from keras import initializers
-from keras import regularizers
-from keras import constraints
-from keras.layers import Lambda
+from tensorflow.keras import activations
+from tensorflow.keras import initializers
+from tensorflow.keras import regularizers
+from tensorflow.keras import constraints
+from tensorflow.keras.layers import Lambda
 
 import tensorflow as tf
-import keras.backend as K
+import tensorflow.keras.backend as K
 
 class MessageLayer(Layer):
     """ Implements the matrix multiplication message functions from Gilmer
@@ -36,11 +36,11 @@ class MessageLayer(Layer):
         self.reducer = reducer
 
         reducer_dict = {
-            None: tf.segment_sum,
-            'sum': tf.segment_sum,
-            'mean': tf.segment_mean,
-            'max': tf.segment_max,
-            'min': tf.segment_min
+            None: tf.math.segment_sum,
+            'sum': tf.math.segment_sum,
+            'mean': tf.math.segment_mean,
+            'max': tf.math.segment_max,
+            'min': tf.math.segment_min
         }
 
         self._reducer = reducer_dict[reducer]
@@ -162,13 +162,13 @@ class Reducer(Layer):
         self.reducer = reducer
 
         reducer_dict = {
-            None: tf.segment_sum,
-            'sum': tf.segment_sum,
-            'unsorted_sum': tf.unsorted_segment_sum,
-            'mean': tf.segment_mean,
-            'unsorted_mean': tf.unsorted_segment_mean,
-            'max': tf.segment_max,
-            'min': tf.segment_min
+            None: tf.math.segment_sum,
+            'sum': tf.math.segment_sum,
+            'unsorted_sum': tf.math.unsorted_segment_sum,
+            'mean': tf.math.segment_mean,
+            'unsorted_mean': tf.math.unsorted_segment_mean,
+            'max': tf.math.segment_max,
+            'min': tf.math.segment_min
         }
 
         self._reducer = reducer_dict[reducer]
@@ -224,7 +224,7 @@ class ReduceBondToPro(Reducer):
     def call(self, inputs):
         
         bond_matrix, bond_index, n_pro = inputs
-        num_segments = tf.reduce_sum(n_pro)
+        num_segments = tf.math.reduce_sum(n_pro)
         return self._reducer(bond_matrix, bond_index, num_segments)
 
     def compute_output_shape(self, input_shape):
@@ -249,7 +249,7 @@ class ReduceAtomToPro(Reducer):
     def call(self, inputs):
         
         atom_matrix, atom_index, n_pro = inputs
-        num_segments = tf.reduce_sum(n_pro)
+        num_segments = tf.math.reduce_sum(n_pro)
         return self._reducer(atom_matrix, atom_index, num_segments)
 
     def compute_output_shape(self, input_shape):

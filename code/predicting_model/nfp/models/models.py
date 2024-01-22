@@ -1,6 +1,6 @@
-from keras.models import Model
+import tensorflow as tf
 
-class GraphModel(Model):
+class GraphModel(tf.keras.Model):
     """ This is a simple modification of the Keras `Model` class to avoid
     checking each input for a consistent batch_size dimension. Should work as
     of keras-team/keras#11548.
