@@ -42,7 +42,7 @@ wandb.init(
         config={
         "learning_rate": 5E-4,
         "dataset": "cascade",
-        "epochts": 1200,
+        "epochs": 1200,
         "setting": "default",
     }
 )

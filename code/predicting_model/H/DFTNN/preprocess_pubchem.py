@@ -19,19 +19,33 @@ from itertools import islice
 
 from nfp.preprocessing import MolAPreprocessor, GraphSequence
 
-mols = []
-with gzip.open('../../../../data/DFT8K/DFT.sdf.gz', 'r') as sdfile:
-    mol_supplier = ForwardSDMolSupplier(sdfile, removeHs=False, sanitize=False)
-    for mol in tqdm(mol_supplier):
-        if mol:
-            mols += [(int(mol.GetProp('_Name')), mol, mol.GetNumAtoms())]
+dataset = "own"
 
-mols = pd.DataFrame(mols, columns=['mol_id', 'Mol', 'n_atoms'])
-mols = mols.set_index('mol_id', drop=True)
+if (dataset == "cascade"):
+    mols = []
+    with gzip.open('../../../../data/DFT8K/DFT.sdf.gz', 'r') as sdfile:
+        mol_supplier = ForwardSDMolSupplier(sdfile, removeHs=False, sanitize=False)
+        for mol in tqdm(mol_supplier):
+            if mol:
+                mols += [(int(mol.GetProp('_Name')), mol, mol.GetNumAtoms())]
 
-df = pd.read_csv('../../../../data/DFT8K/DFT8K.csv.gz', index_col=0)
-#only choose C and H
-df = df.loc[df.atom_type == 1]
+    mols = pd.DataFrame(mols, columns=['mol_id', 'Mol', 'n_atoms'])
+    print(mols)
+    mols = mols.set_index('mol_id', drop=True)
+
+    df = pd.read_csv('../../../../data/DFT8K/DFT8K.csv.gz', index_col=0)
+    #only choose C and H
+    print(df)
+    df = df.loc[df.atom_type == 1]
+
+elif (dataset == "own"):
+    mols = pd.read_csv('own_data_mol.csv.gz', index_col=0)
+    print(mols)
+
+    df = pd.read_csv('own_data_atom.csv.gz', index_col=0)
+    #only choose C and H
+    print(df)
+    df = df.loc[df.atom_type == 1]
 
 #only predict chemical shift for H of C-H
 def to_C(atom):
@@ -43,6 +57,7 @@ def to_C(atom):
 
 df['Mol'] = mols.reindex(df.mol_id).Mol.values
 df = df.dropna()
+print(df)
 df = df.loc[df.apply(lambda x: to_C(x['Mol'].GetAtomWithIdx(x['atom_index'])), axis=1).values]
 
 grouped_df = df.groupby(['mol_id'])
@@ -67,9 +82,14 @@ test = mols.reindex(test.index).join(test[['atom_index', 'Shift']])
 valid = mols.reindex(valid.index).join(valid[['atom_index', 'Shift']])
 train = mols.reindex(train.index).join(train[['atom_index', 'Shift']])
 
-test.to_pickle('test.pkl.gz', compression='gzip')
-valid.to_pickle('valid.pkl.gz', compression='gzip')
-train.to_pickle('train.pkl.gz', compression='gzip')
+if (dataset == "cascade"):
+    test.to_pickle('cascade_test.pkl.gz', compression='gzip')
+    valid.to_pickle('cascade_valid.pkl.gz', compression='gzip')
+    train.to_pickle('cascade_train.pkl.gz', compression='gzip')
+elif (dataset == "own"):
+    test.to_pickle('own_test.pkl.gz', compression='gzip')
+    valid.to_pickle('own_valid.pkl.gz', compression='gzip')
+    train.to_pickle('own_train.pkl.gz', compression='gzip')
 
 # Preprocess molecules
 def atomic_number_tokenizer(atom):
@@ -86,10 +106,20 @@ inputs_valid = preprocessor.predict(Mol_iter(valid))
 inputs_test = preprocessor.predict(Mol_iter(test))
 
 import pickle
-with open('processed_inputs.p', 'wb') as file:        
-    pickle.dump({
-        'inputs_train': inputs_train,
-        'inputs_valid': inputs_valid,
-        'inputs_test': inputs_test,
-        'preprocessor': preprocessor,
-    }, file)
+
+if (dataset == "cascade"):  
+    with open('cascade_processed_inputs.p', 'wb') as file:        
+        pickle.dump({
+            'inputs_train': inputs_train,
+            'inputs_valid': inputs_valid,
+            'inputs_test': inputs_test,
+            'preprocessor': preprocessor,
+        }, file)
+elif (dataset == "own"):  
+    with open('own_processed_inputs.p', 'wb') as file:        
+        pickle.dump({
+            'inputs_train': inputs_train,
+            'inputs_valid': inputs_valid,
+            'inputs_test': inputs_test,
+            'preprocessor': preprocessor,
+        }, file)
