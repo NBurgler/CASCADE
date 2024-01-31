@@ -567,7 +567,13 @@ class MolAPreprocessor(MolPreprocessor):
         # n_bond is actually the number of atom-atom pairs, so this is defined
         # by the number of neighbors for each atom.
         #if there is cutoff, 
-        distance_matrix = Chem.Get3DDistanceMatrix(mol)
+        try:
+            distance_matrix = Chem.Get3DDistanceMatrix(mol)
+        except ValueError:
+            print(Chem.MolToSmiles(mol))
+            bad_mol = Chem.RemoveHs(mol)
+            print(Chem.MolToSmiles(bad_mol))
+            return
 
         #if self.n_neighbors <= (n_atom - 1):
         #    n_bond = self.n_neighbors * n_atom

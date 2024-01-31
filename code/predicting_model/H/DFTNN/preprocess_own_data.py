@@ -31,7 +31,7 @@ for sampleText in samples:
     n_atoms = mol.GetNumAtoms(onlyExplicit=False)
 
     mol_dict["mol_id"].append(mol_id)
-    mol_dict["Mol"].append(mol)
+    mol_dict["Mol"].append(smiles)
     mol_dict["n_atoms"].append(n_atoms)
 
     iter_H = 0
@@ -40,7 +40,7 @@ for sampleText in samples:
         atom_dict["mol_id"].append(mol_id)
         atom_type = atom.GetAtomicNum()
         atom_dict["atom_type"].append(atom_type)
-        atom_dict["atom_index"].append(atom.GetIdx() + 1) #Rdkit counts from 1
+        atom_dict["atom_index"].append(atom.GetIdx())#TODO check if needs +1
         
         if (atom_type == 1):
             atomSplit = sampleSplit[3+iter_H].split(",")

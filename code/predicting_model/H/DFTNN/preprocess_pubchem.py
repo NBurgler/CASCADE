@@ -30,21 +30,24 @@ if (dataset == "cascade"):
                 mols += [(int(mol.GetProp('_Name')), mol, mol.GetNumAtoms())]
 
     mols = pd.DataFrame(mols, columns=['mol_id', 'Mol', 'n_atoms'])
-    print(mols)
     mols = mols.set_index('mol_id', drop=True)
 
     df = pd.read_csv('../../../../data/DFT8K/DFT8K.csv.gz', index_col=0)
     #only choose C and H
-    print(df)
     df = df.loc[df.atom_type == 1]
 
 elif (dataset == "own"):
     mols = pd.read_csv('own_data_mol.csv.gz', index_col=0)
-    print(mols)
+    i = 0
+    for mol in mols["Mol"]:
+        new_mol = Chem.MolFromSmiles(mol)
+        new_mol = Chem.AddHs(new_mol, addCoords=True)
+        AllChem.EmbedMolecule(new_mol, useRandomCoords=True) 
+        mols["Mol"][i] = new_mol
+        i += 1
 
     df = pd.read_csv('own_data_atom.csv.gz', index_col=0)
     #only choose C and H
-    print(df)
     df = df.loc[df.atom_type == 1]
 
 #only predict chemical shift for H of C-H
