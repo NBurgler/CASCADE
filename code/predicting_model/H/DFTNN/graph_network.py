@@ -51,8 +51,8 @@ parser = argparse.ArgumentParser()
 parser.add_argument('-r', '--restart', action='store_true')
 args = parser.parse_args()
 
-train = pd.read_pickle('train.pkl.gz')
-valid = pd.read_pickle('valid.pkl.gz')
+train = pd.read_pickle('own_train.pkl.gz')
+valid = pd.read_pickle('own_valid.pkl.gz')
 
 y_train = train.Shift.values
 y_valid = valid.Shift.values
@@ -84,7 +84,7 @@ class RBFSequence(GraphSequence):
 
         return batch_data
 
-with open('processed_inputs.p', 'rb') as f:
+with open('own_processed_inputs.p', 'rb') as f:
     input_data = pickle.load(f)
     
 preprocessor = input_data['preprocessor']
@@ -176,7 +176,7 @@ atom_state = Dense(1)(atom_state)
 
 output = Add()([atom_state, atomwise_shift])
 
-filepath = "new_best_model.hdf5"
+filepath = "own_best_model.hdf5"
 
 lr = 5E-4
 epochs = 1200
@@ -196,7 +196,7 @@ else:
 model.summary()
     
 checkpoint = ModelCheckpoint(filepath, save_best_only=True, period=1, verbose=1)
-csv_logger = CSVLogger('log.csv')
+csv_logger = CSVLogger('own_log.csv')
 
 def decay_fn(epoch, learning_rate):
     """ Jorgensen decays to 0.96*lr every 100,000 batches, which is approx

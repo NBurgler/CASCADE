@@ -570,7 +570,6 @@ class MolAPreprocessor(MolPreprocessor):
         try:
             distance_matrix = Chem.Get3DDistanceMatrix(mol)
         except ValueError:
-            print(Chem.MolToSmiles(mol))
             bad_mol = Chem.RemoveHs(mol)
             print(Chem.MolToSmiles(bad_mol))
             return

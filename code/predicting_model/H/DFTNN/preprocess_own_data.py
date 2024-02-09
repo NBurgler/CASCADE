@@ -10,7 +10,7 @@ import tqdm
 
 from rdkit import Chem
 
-file = open('../../../../data/own_data/output_all.txt', 'r')
+file = open('../../../../data/own_data/cleaned_dataset.txt', 'r')
 text = file.read()
 samples = text.split('\n\n')
 mol_id = 0

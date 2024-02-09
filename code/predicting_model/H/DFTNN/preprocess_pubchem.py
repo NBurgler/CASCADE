@@ -42,7 +42,32 @@ elif (dataset == "own"):
     for mol in mols["Mol"]:
         new_mol = Chem.MolFromSmiles(mol)
         new_mol = Chem.AddHs(new_mol, addCoords=True)
-        AllChem.EmbedMolecule(new_mol, useRandomCoords=True) 
+        attempts = 0
+        flag = 0
+
+        while(flag == 0 and attempts <= 500):   # Attempt to find a proper embedding 500 times
+            AllChem.EmbedMolecule(new_mol, useRandomCoords=True)
+            try:
+                AllChem.MMFFOptimizeMolecule(new_mol)
+                flag = 1
+            except:
+                attempts += 1
+
+        if (flag == 0):
+            bad_mol = Chem.RemoveHs(new_mol)
+            print("Error with optimizing")
+            print(Chem.MolToSmiles(bad_mol))
+            print(attempts)
+            continue
+
+        try:
+            Chem.rdMolTransforms.CanonicalizeMol(new_mol, normalizeCovar=True, ignoreHs=False)
+        except ValueError:
+            bad_mol = Chem.RemoveHs(new_mol)
+            print("Error with canonicalizing")
+            print(Chem.MolToSmiles(bad_mol))
+            continue
+
         mols["Mol"][i] = new_mol
         i += 1
 
