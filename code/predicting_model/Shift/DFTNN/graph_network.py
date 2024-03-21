@@ -1,5 +1,5 @@
 import sys
-sys.path.append('../..')
+sys.path.append('code/predicting_model')
 from collections import Counter
 from sklearn.linear_model import LinearRegression
 
@@ -47,15 +47,22 @@ wandb.init(
     }
 )
 
+path = "/home/s3665828/Documents/Masters_Thesis/repo/CASCADE/code/predicting_model/Shift/DFTNN/"
+
 parser = argparse.ArgumentParser()
 parser.add_argument('-r', '--restart', action='store_true')
 args = parser.parse_args()
 
-train = pd.read_pickle('own_train.pkl.gz')
-valid = pd.read_pickle('own_valid.pkl.gz')
+train = pd.read_pickle(path + 'own_train.pkl.gz')
+valid = pd.read_pickle(path + 'own_valid.pkl.gz')
+
+print(train.Shift[0:10])
 
 y_train = train.Shift.values
 y_valid = valid.Shift.values
+
+print(y_train[0:10])
+print(y_train[0].dtype)
 
 def rbf_expansion(distances, mu=0, delta=0.1, kmax=256):
     k = np.arange(0, kmax)
@@ -84,7 +91,7 @@ class RBFSequence(GraphSequence):
 
         return batch_data
 
-with open('own_processed_inputs.p', 'rb') as f:
+with open(path + 'own_processed_inputs.p', 'rb') as f:
     input_data = pickle.load(f)
     
 preprocessor = input_data['preprocessor']
@@ -104,6 +111,9 @@ atom_means = atom_means.reindex(np.arange(preprocessor.atom_classes)).fillna(0)
 batch_size = 32
 train_sequence = RBFSequence(input_data['inputs_train'], y_train, batch_size)
 valid_sequence = RBFSequence(input_data['inputs_valid'], y_valid, batch_size)
+
+#print(train_sequence._inputs[0])
+#print(train_sequence._y[0])
 
 # Raw (integer) graph inputs
 atom_index = Input(shape=(1,), name='atom_index', dtype='int32')

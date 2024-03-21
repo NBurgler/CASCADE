@@ -1,5 +1,5 @@
 import sys
-sys.path.append('../..')
+sys.path.append('code/predicting_model')
 from collections import Counter
 from sklearn.linear_model import LinearRegression
 
@@ -15,6 +15,7 @@ from nfp.preprocessing import MolPreprocessor, GraphSequence
 import gzip
 import pickle
 import pandas as pd
+import tensorflow as tf
 
 # Define Keras model
 from tensorflow import keras
@@ -23,7 +24,7 @@ import tensorflow.keras.backend as K
 from tensorflow.keras.callbacks import ModelCheckpoint, CSVLogger, LearningRateScheduler
 
 from tensorflow.keras.layers import (Input, Embedding, Dense, BatchNormalization, Dropout,
-                                 Concatenate, Multiply, Add)
+                                 Concatenate, Multiply, Add, Reshape)
 from tensorflow.keras import models
 
 from nfp.layers import (MessageLayer, GRUStep, Squeeze, EdgeNetwork,
@@ -38,7 +39,7 @@ from wandb.keras import WandbCallback
 
 #wandb.init(
 #        project="nmr-prediction",
-#        dir="/home/s3665828/Documents/Masters_Thesis/repo/CASCADE/code/predicting_model/DFTNN/Multiplicity",
+#        dir="/home/s3665828/Documents/Masters_Thesis/repo/CASCADE/code/predicting_model/Multiplicity",
 #        config={
 #        "learning_rate": 5E-4,
 #        "dataset": "cascade",
@@ -48,15 +49,60 @@ from wandb.keras import WandbCallback
 #    }
 #)
 
+path = "/home/s3665828/Documents/Masters_Thesis/repo/CASCADE/code/predicting_model/Multiplicity/"
+
 parser = argparse.ArgumentParser()
 parser.add_argument('-r', '--restart', action='store_true')
 args = parser.parse_args()
 
-train = pd.read_pickle('own_train.pkl.gz')
-valid = pd.read_pickle('own_valid.pkl.gz')
+train = pd.read_pickle(path + 'mult_train.pkl.gz')
+valid = pd.read_pickle(path + 'mult_valid.pkl.gz')
 
-y_train = train.Shift.values
-y_valid = valid.Shift.values
+train_labels = train.Shape.values
+valid_labels = valid.Shape.values
+
+'''
+def one_hot_encode(shape):
+    indices = [8, 8, 8, 8, 8, 8]
+    for i in range(6):
+        if (i >= len(shape)): indices[i] = 8
+        elif (shape[i] == 'm'): indices[i] = 0
+        elif (shape[i] == 's'): indices[i] = 1
+        elif (shape[i] == 'd'): indices[i] = 2
+        elif (shape[i] == 't'): indices[i] = 3
+        elif (shape[i] == 'q'): indices[i] = 4
+        elif (shape[i] == 'p'): indices[i] = 5
+        elif (shape[i] == 'h'): indices[i] = 6
+        elif (shape[i] == 'v'): indices[i] = 7
+        else: print(shape[i])
+    return tf.one_hot(indices, depth=9)
+'''
+y_train = train.Shape
+#print(np.zeros((train_labels.size, 0, 6, 9), dtype=int))
+y_valid = valid.Shape
+
+print(y_train[0:10])
+print(y_train[0].dtype)
+print(train_labels[0:10])
+print(train_labels[0].dtype)
+# convert y_train and y_valid to integer matrices instead of objects
+for i, sample in enumerate(train_labels):
+    for j, matrix in enumerate(sample):
+        matrix = np.asmatrix(matrix).reshape(6, 9)
+        #y_train[i] = np.append(y_train[i], matrix)
+        y_train[i][j] = matrix
+        #print(np.append(y_train[i], matrix))
+
+for i, sample in enumerate(valid_labels):
+    for j, matrix in enumerate(sample):
+        y_valid[i] = np.append(y_valid[i], matrix)
+
+#print(y_train[0])
+#y_train = np.asarray(y_train, dtype=int)
+#y_valid = np.asarray(y_valid, dtype=int)
+#y_train = tf.convert_to_tensor(y_train)
+#y_valid = tf.convert_to_tensor(y_valid)
+
 
 def rbf_expansion(distances, mu=0, delta=0.1, kmax=256):
     k = np.arange(0, kmax)
@@ -85,26 +131,38 @@ class RBFSequence(GraphSequence):
 
         return batch_data
 
-with open('own_processed_inputs.p', 'rb') as f:
+with open(path + 'mult_processed_inputs.p', 'rb') as f:
     input_data = pickle.load(f)
     
 preprocessor = input_data['preprocessor']
 
 # Train a quick group-contribution model to get initial values for enthalpies per atom
 
-X = []
-Y = []
-for row,y in zip(input_data['inputs_train'], y_train): 
-    X.extend(row['atom'][row['atom_index']>=0])
-    Y.extend(y[row['atom_index'][row['atom_index']>=0]])
+#X = []
+#Y = []
+#for row,y in zip(input_data['inputs_train'], y_train): 
+#    X.extend(row['atom'][row['atom_index']>=0])
+#    Y.extend([[0, 1, 0, 0, 0, 0, 0, 0, 0],
+#            [0, 0, 0, 0, 0, 0, 0, 0, 1],
+#            [0, 0, 0, 0, 0, 0, 0, 0, 1],
+#            [0, 0, 0, 0, 0, 0, 0, 0, 1],
+#            [0, 0, 0, 0, 0, 0, 0, 0, 1],
+#            [0, 0, 0, 0, 0, 0, 0, 0, 1],
+#            [0, 0, 0, 0, 0, 0, 0, 0, 1]])
 
-atom_means = pd.DataFrame({'atom':X, 'shift':Y}).dropna().groupby('atom')['shift'].mean()
+#atom_means = pd.DataFrame({'atom':X, 'shape':Y}).dropna().groupby('atom')['shape']
 
-atom_means = atom_means.reindex(np.arange(preprocessor.atom_classes)).fillna(0)
+#atom_means = atom_means.reindex(np.arange(preprocessor.atom_classes)).fillna(0)
+
 # Construct input sequences
 batch_size = 32
+
 train_sequence = RBFSequence(input_data['inputs_train'], y_train, batch_size)
 valid_sequence = RBFSequence(input_data['inputs_valid'], y_valid, batch_size)
+#print(train_sequence._inputs[0])
+#print(train_sequence._y[0])
+
+#print(input_data['inputs_train'])
 
 # Raw (integer) graph inputs
 atom_index = Input(shape=(1,), name='atom_index', dtype='int32')
@@ -126,9 +184,9 @@ atom_state = Embedding(
     preprocessor.atom_classes,
     atom_features, name='atom_embedding')(satom_types)
 
-atomwise_shift = Embedding(
-    preprocessor.atom_classes, 1, name='atomwise_shift',
-    embeddings_initializer=keras.initializers.constant(atom_means.values)
+atomwise_shape = Embedding(
+    preprocessor.atom_classes, 1, name='atomwise_shape',
+    embeddings_initializer=keras.initializers.constant(1)   #TODO check initialization
 )(satom_types)
 
 bond_state = distance_rbf
@@ -168,14 +226,15 @@ for _ in range(3):
     
 
 atom_state = ReduceAtomToPro(reducer='unsorted_mean')([atom_state, satom_index, sn_pro])
-atomwise_shift = ReduceAtomToPro(reducer='unsorted_mean')([atomwise_shift, satom_index, sn_pro])
+atomwise_shape = ReduceAtomToPro(reducer='unsorted_mean')([atomwise_shape, satom_index, sn_pro])
 
 atom_state = Dense(atom_features, activation='softplus')(atom_state)
 atom_state = Dense(atom_features, activation='softplus')(atom_state)
 atom_state = Dense(atom_features//2, activation='softplus')(atom_state)
-atom_state = Dense(1)(atom_state)
+atom_state = Dense(6 * 9, activation='softmax')(atom_state)
 
-output = Add()([atom_state, atomwise_shift])
+output = Add()([atom_state, atomwise_shape])
+output = Reshape((6, 9))(output)
 
 filepath = "multiplicity_model.hdf5"
 
@@ -215,6 +274,7 @@ def decay_fn(epoch, learning_rate):
 
 lr_decay = LearningRateScheduler(decay_fn)
 
-hist = model.fit_generator(train_sequence, validation_data=valid_sequence,
-                           epochs=epochs, verbose=1, 
-                           callbacks=[checkpoint, csv_logger, lr_decay, WandbCallback()])
+#print(train_sequence._y)
+hist = model.fit(train_sequence, validation_data=valid_sequence,
+                 epochs=epochs, verbose=1, 
+                 callbacks=[checkpoint, csv_logger, lr_decay])

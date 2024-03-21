@@ -659,66 +659,145 @@ class MolAPreprocessor(MolPreprocessor):
             'connectivity': connectivity,
             'atom_index': atom_index_matrix,
         }
+    
+class MolShapePreprocessor(MolPreprocessor):
+    """
+    This is a subclass of Molpreprocessor that preprocessor molecule with
+    bond property target
+    """
+    def __init__(self, **kwargs):
+        """
+        A preprocessor class that also returns bond_target_matrix, besides the bond matrix
+        returned by MolPreprocessor. The bond_target_matrix is then used as ref to reduce molecule
+        to bond property
+        """
+        self.atom_features = features.atom_features_shape
+        super(MolShapePreprocessor, self).__init__(**kwargs)
+
+    def construct_feature_matrices(self, entry):
+        """
+        Given an entry contining rdkit molecule, bond_index and for the target property, 
+        return atom 
+        feature matrices, bond feature matrices, distance matrices, connectivity matrices and bond
+        ref matrices.
+
+        returns
+        dict with entries
+        see MolPreproccessor
+        'bond_index' : ref array to the bond index
+        """
+        mol, atom_index_array, shift_array = entry
+        
+        n_atom = len(mol.GetAtoms())
+        n_pro = len(atom_index_array)
+
+        # n_bond is actually the number of atom-atom pairs, so this is defined
+        # by the number of neighbors for each atom.
+        #if there is cutoff, 
+        try:
+            distance_matrix = Chem.Get3DDistanceMatrix(mol)
+        except ValueError:
+            bad_mol = Chem.RemoveHs(mol)
+            print(Chem.MolToSmiles(bad_mol))
+            return
+
+        #if self.n_neighbors <= (n_atom - 1):
+        #    n_bond = self.n_neighbors * n_atom
+        #else:
+            # If there are fewer atoms than n_neighbors, all atoms will be
+            # connected
+        n_bond = distance_matrix[(distance_matrix < self.cutoff) & (distance_matrix != 0)].size
+
+        if n_bond == 0: n_bond = 1
+
+        # Initialize the matrices to be filled in during the following loop.
+        atom_feature_matrix = np.zeros(n_atom, dtype='int')
+        bond_feature_matrix = np.zeros(n_bond, dtype='int')
+        bond_distance_matrix = np.zeros(n_bond, dtype=np.float32)
+        atom_index_matrix = np.full(n_atom, -1, dtype='int')
+        connectivity = np.zeros((n_bond, 2), dtype='int')
+        shift = np.zeros(n_atom, dtype='double')
+
+        # Hopefully we've filtered out all problem mols by now.
+        if mol is None:
+            raise RuntimeError("Issue in loading mol")
+        
+        # Get a list of the atoms in the molecule.
+        atom_seq = mol.GetAtoms()
+        atoms = [atom_seq[i] for i in range(n_atom)]
+
+        # Here we loop over each atom, and the inner loop iterates over each
+        # neighbor of the current atom.
+        bond_index = 0  # keep track of our current bond.
+        shift_index = 0
+        for n, atom in enumerate(atoms):
+            # Fill shift array
+            if (n in atom_index_array):
+                shift[n] = shift_array[shift_index]
+                shift_index += 1
+            else:
+                shift[n] = -1.0
+
+            # update atom feature matrix
+            atom_feature_matrix[n] = self.atom_tokenizer(
+                self.atom_features(atom, shift))
+            try:
+                atom_index_matrix[n] = atom_index_array.tolist().index(atom.GetIdx())
+            except:
+                pass 
+            # if n_neighbors is greater than total atoms, then each atom is a
+            # neighbor.
+            if (self.n_neighbors + 1) > len(mol.GetAtoms()):
+                neighbor_end_index = len(mol.GetAtoms())
+            else:
+                neighbor_end_index = (self.n_neighbors + 1)
+
+            distance_atom = distance_matrix[n, :]
+            cutoff_end_index = distance_atom[distance_atom < self.cutoff].size
+
+            end_index = min(neighbor_end_index, cutoff_end_index)
+
+            # Loop over each of the nearest neighbors
+
+            neighbor_inds = distance_matrix[n, :].argsort()[1:end_index]
+            if len(neighbor_inds)==0: neighbor_inds = [n]
+            for neighbor in neighbor_inds:
+                
+                # update bond feature matrix
+                bond = mol.GetBondBetweenAtoms(n, int(neighbor))
+                try:
+                    if bond is None:
+                        bond_feature_matrix[bond_index] = 0
+                    else:
+                        rev = False if bond.GetBeginAtomIdx() == n else True
+                        bond_feature_matrix[bond_index] = self.bond_tokenizer(
+                            self.bond_features(bond, flipped=rev))
+                except:
+                    print('AAAAAAAAAAAAAAA')
+                    print(mol.GetProp('_Name'))
+                    print(mol.GetProp('ConfId'))
+
+                distance = distance_matrix[n, neighbor]
+                bond_distance_matrix[bond_index] = distance
+                 
+                # update connectivity matrix
+                connectivity[bond_index, 0] = n
+                connectivity[bond_index, 1] = neighbor
+                
+                bond_index += 1
 
 
-# TODO: rewrite this                                
-# class LaplacianSmilesPreprocessor(SmilesPreprocessor):
-#     """ Extends the SmilesPreprocessor class to also return eigenvalues and
-#     eigenvectors of the graph laplacian matrix.
-#
-#     Example:
-#     >>> preprocessor = SmilesPreprocessor(
-#     >>>     max_atoms=55, max_bonds=62, max_degree=4, explicit_hs=False)
-#     >>> atom, connectivity, eigenvalues, eigenvectors = preprocessor.fit(
-#             data.smiles)
-#     """
-#
-#     def preprocess(self, smiles_iterator, train=True):
-#
-#         self.atom_tokenizer.train = train
-#         self.bond_tokenizer.train = train
-#
-#         for smiles in tqdm(smiles_iterator):
-#             G = self._mol_to_nx(smiles)
-#             A = self._get_atom_feature_matrix(G)
-#             C = self._get_connectivity_matrix(G)
-#             W, V = self._get_laplacian_spectral_decomp(G)
-#             yield A, C, W, V
-#
-#
-#     def _get_laplacian_spectral_decomp(self, G):
-#         """ Return the eigenvalues and eigenvectors of the graph G, padded to
-#         `self.max_atoms`.
-#         """
-#
-#         w0 = np.zeros((self.max_atoms, 1))
-#         v0 = np.zeros((self.max_atoms, self.max_atoms))
-#
-#         w, v = eigh(nx.laplacian_matrix(G).todense())
-#
-#         num_atoms = len(v)
-#
-#         w0[:num_atoms, 0] = w
-#         v0[:num_atoms, :num_atoms] = v
-#
-#         return w0, v0
-#
-#
-#     def fit(self, smiles_iterator):
-#         results = self._fit(smiles_iterator)
-#         return {'atom': results[0], 
-#                 'connectivity': results[1],
-#                 'w': results[2],
-#                 'v': results[3]}
-#
-#
-#     def predict(self, smiles_iterator):
-#         results = self._predict(smiles_iterator)
-#         return {'atom': results[0], 
-#                 'connectivity': results[1],
-#                 'w': results[2],
-#                 'v': results[3]}
-
+        return {
+            'n_atom': n_atom,
+            'n_bond': n_bond,
+            'n_pro': n_pro,
+            'atom': atom_feature_matrix,
+            'bond': bond_feature_matrix,
+            'distance': bond_distance_matrix,
+            'connectivity': connectivity,
+            'atom_index': atom_index_matrix,
+        }
+    
 
 def get_max_atom_bond_size(smiles_iterator, explicit_hs=True):
     """ Convienence function to get max_atoms, max_bonds for a set of input

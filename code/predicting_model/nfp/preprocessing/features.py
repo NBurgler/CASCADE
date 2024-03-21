@@ -76,6 +76,10 @@ def atom_features_v2(atom):
 def atom_features(atom):
     return atom.GetAtomicNum()
 
+def atom_features_shape(atom, shift):
+    return str((atom.GetAtomicNum(),
+                shift,
+    ))
 
 def bond_features_v1(bond, **kwargs):
     """ Return an integer hash representing the bond type.
