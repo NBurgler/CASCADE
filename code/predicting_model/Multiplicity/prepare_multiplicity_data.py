@@ -50,7 +50,7 @@ for sampleText in samples:
             atomSplit = sampleSplit[3+iter_H].split(",")
             atom_dict["Shift"].append(float(atomSplit[1]))
             shape = atomSplit[3]
-            for i in range(6):
+            '''for i in range(6):
                 if (i >= len(shape)): shape_matrix[i][8] = 1
                 elif (shape[i] == 'm'): shape_matrix[i][0] = 1
                 elif (shape[i] == 's'): shape_matrix[i][1] = 1
@@ -62,8 +62,8 @@ for sampleText in samples:
                 elif (shape[i] == 'v'): shape_matrix[i][7] = 1
                 else: print(shape[i])
                 
-            atom_dict["Shape"].append(shape_matrix)
-            #atom_dict["Shape"].append(shape)
+            atom_dict["Shape"].append(shape_matrix)'''
+            atom_dict["Shape"].append(shape)
 
             iter_H += 1
         else:

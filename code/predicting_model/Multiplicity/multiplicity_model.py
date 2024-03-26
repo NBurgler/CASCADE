@@ -49,7 +49,7 @@ from wandb.keras import WandbCallback
 #    }
 #)
 
-path = "/home/s3665828/Documents/Masters_Thesis/repo/CASCADE/code/predicting_model/Multiplicity/"
+path = "/home/niels/Documents/CASCADE/code/predicting_model/Multiplicity/"
 
 parser = argparse.ArgumentParser()
 parser.add_argument('-r', '--restart', action='store_true')
@@ -58,51 +58,8 @@ args = parser.parse_args()
 train = pd.read_pickle(path + 'mult_train.pkl.gz')
 valid = pd.read_pickle(path + 'mult_valid.pkl.gz')
 
-train_labels = train.Shape.values
-valid_labels = valid.Shape.values
-
-'''
-def one_hot_encode(shape):
-    indices = [8, 8, 8, 8, 8, 8]
-    for i in range(6):
-        if (i >= len(shape)): indices[i] = 8
-        elif (shape[i] == 'm'): indices[i] = 0
-        elif (shape[i] == 's'): indices[i] = 1
-        elif (shape[i] == 'd'): indices[i] = 2
-        elif (shape[i] == 't'): indices[i] = 3
-        elif (shape[i] == 'q'): indices[i] = 4
-        elif (shape[i] == 'p'): indices[i] = 5
-        elif (shape[i] == 'h'): indices[i] = 6
-        elif (shape[i] == 'v'): indices[i] = 7
-        else: print(shape[i])
-    return tf.one_hot(indices, depth=9)
-'''
-y_train = train.Shape
-#print(np.zeros((train_labels.size, 0, 6, 9), dtype=int))
-y_valid = valid.Shape
-
-print(y_train[0:10])
-print(y_train[0].dtype)
-print(train_labels[0:10])
-print(train_labels[0].dtype)
-# convert y_train and y_valid to integer matrices instead of objects
-for i, sample in enumerate(train_labels):
-    for j, matrix in enumerate(sample):
-        matrix = np.asmatrix(matrix).reshape(6, 9)
-        #y_train[i] = np.append(y_train[i], matrix)
-        y_train[i][j] = matrix
-        #print(np.append(y_train[i], matrix))
-
-for i, sample in enumerate(valid_labels):
-    for j, matrix in enumerate(sample):
-        y_valid[i] = np.append(y_valid[i], matrix)
-
-#print(y_train[0])
-#y_train = np.asarray(y_train, dtype=int)
-#y_valid = np.asarray(y_valid, dtype=int)
-#y_train = tf.convert_to_tensor(y_train)
-#y_valid = tf.convert_to_tensor(y_valid)
-
+y_train = train.Shape.values
+y_valid = valid.Shape.values
 
 def rbf_expansion(distances, mu=0, delta=0.1, kmax=256):
     k = np.arange(0, kmax)

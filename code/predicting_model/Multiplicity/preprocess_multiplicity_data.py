@@ -73,11 +73,39 @@ df = df.loc[df.apply(lambda x: to_C(x['Mol'].GetAtomWithIdx(x['atom_index'])), a
 
 grouped_df = df.groupby(['mol_id'])
 df_Shape = []
+shape_dict = {"mol_id":[], "Shape":[]}
+
+for mol_id, df in grouped_df:
+    for shape in df['Shape'].values:
+        shape_matrix = [[0, 0, 0, 0, 0, 0, 0, 0, 0],
+                        [0, 0, 0, 0, 0, 0, 0, 0, 0],
+                        [0, 0, 0, 0, 0, 0, 0, 0, 0],
+                        [0, 0, 0, 0, 0, 0, 0, 0, 0],
+                        [0, 0, 0, 0, 0, 0, 0, 0, 0],
+                        [0, 0, 0, 0, 0, 0, 0, 0, 0]]
+        
+        for i in range(6):
+            if (i >= len(shape)): shape_matrix[i][8] = 1
+            elif (shape[i] == 'm'): shape_matrix[i][0] = 1
+            elif (shape[i] == 's'): shape_matrix[i][1] = 1
+            elif (shape[i] == 'd'): shape_matrix[i][2] = 1
+            elif (shape[i] == 't'): shape_matrix[i][3] = 1
+            elif (shape[i] == 'q'): shape_matrix[i][4] = 1
+            elif (shape[i] == 'p'): shape_matrix[i][5] = 1
+            elif (shape[i] == 'h'): shape_matrix[i][6] = 1
+            elif (shape[i] == 'v'): shape_matrix[i][7] = 1
+            else: print(shape[i])
+        
+        shape_dict['mol_id'].append(mol_id)
+        shape_dict['Shape'].append(shape_matrix)
+    
+shape_df = pd.DataFrame.from_dict(shape_dict)
+
 for mol_id,df in grouped_df:
     #print(df.atom_index.values)
     #print(df.Shift.values)
     #print(df.Shape.values)
-    df_Shape.append([mol_id, df.atom_index.values.astype('int'), df.Shift.values.astype('double'), df.Shape.values])
+    df_Shape.append([mol_id, df.atom_index.values.astype('int'), df.Shift.values.astype('double'), shape_df["Shape"].values])
     if len(df.atom_index.values) != len(set(df.atom_index.values)):
         print(mol_id)
 
