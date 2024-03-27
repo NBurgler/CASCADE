@@ -97,15 +97,12 @@ for mol_id, df in grouped_df:
             else: print(shape[i])
         
         shape_dict['mol_id'].append(mol_id)
-        shape_dict['Shape'].append(shape_matrix)
+        shape_dict['Shape'].append(np.asarray(shape_matrix))
     
 shape_df = pd.DataFrame.from_dict(shape_dict)
 
 for mol_id,df in grouped_df:
-    #print(df.atom_index.values)
-    #print(df.Shift.values)
-    #print(df.Shape.values)
-    df_Shape.append([mol_id, df.atom_index.values.astype('int'), df.Shift.values.astype('double'), shape_df["Shape"].values])
+    df_Shape.append([mol_id, df.atom_index.values.astype('int'), df.Shift.values.astype('double'), shape_df.loc[shape_df["mol_id"] == mol_id]["Shape"].values])
     if len(df.atom_index.values) != len(set(df.atom_index.values)):
         print(mol_id)
 

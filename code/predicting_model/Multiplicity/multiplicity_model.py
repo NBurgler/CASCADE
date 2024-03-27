@@ -7,6 +7,7 @@ import os
 import numpy as np
 from numpy.random import seed
 seed(1)
+import array
 import tensorflow
 tensorflow.random.set_seed(2)
 
@@ -49,7 +50,7 @@ from wandb.keras import WandbCallback
 #    }
 #)
 
-path = "/home/niels/Documents/CASCADE/code/predicting_model/Multiplicity/"
+path = "/home/s3665828/Documents/Masters_Thesis/repo/CASCADE/code/predicting_model/Multiplicity/"
 
 parser = argparse.ArgumentParser()
 parser.add_argument('-r', '--restart', action='store_true')
