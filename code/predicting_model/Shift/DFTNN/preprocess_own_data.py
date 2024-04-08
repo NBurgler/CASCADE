@@ -1,6 +1,6 @@
 import sys
 
-sys.path.append('../..')
+sys.path.append('code/predicting_model')
 
 import pandas as pd 
 import numpy as np
@@ -10,7 +10,7 @@ import tqdm
 
 from rdkit import Chem
 
-file = open('../../../../data/own_data/cleaned_dataset.txt', 'r')
+file = open('data/own_data/cleaned_dataset.txt', 'r')
 text = file.read()
 samples = text.split('\n\n')
 mol_id = 0
@@ -55,5 +55,5 @@ for sampleText in samples:
 mol_df = pd.DataFrame.from_dict(mol_dict)
 atom_df = pd.DataFrame.from_dict(atom_dict)
 
-mol_df.to_csv("own_data_mol.csv.gz", compression='gzip')
-atom_df.to_csv("own_data_atom.csv.gz", compression='gzip')
+mol_df.to_csv("code/predicting_model/Shift/DFTNN/own_data_mol.csv.gz", compression='gzip')
+atom_df.to_csv("code/predicting_model/Shift/DFTNN/own_data_atom.csv.gz", compression='gzip')

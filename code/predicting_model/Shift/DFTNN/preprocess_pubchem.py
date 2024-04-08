@@ -1,7 +1,7 @@
 import sys
 
 #change the path into where the nfp folder is
-sys.path.append('../..')
+sys.path.append('code/predicting_model')
 
 import pandas as pd
 import numpy as np
@@ -37,7 +37,7 @@ if (dataset == "cascade"):
     df = df.loc[df.atom_type == 1]
 
 elif (dataset == "own"):
-    mols = pd.read_csv('own_data_mol.csv.gz', index_col=0)
+    mols = pd.read_csv('code/predicting_model/Shift/DFTNN/own_data_mol.csv.gz', index_col=0)
     i = 0
     for mol in mols["Mol"]:
         new_mol = Chem.MolFromSmiles(mol)
@@ -71,7 +71,7 @@ elif (dataset == "own"):
         mols["Mol"][i] = new_mol
         i += 1
 
-    df = pd.read_csv('own_data_atom.csv.gz', index_col=0)
+    df = pd.read_csv('code/predicting_model/Shift/DFTNN/own_data_atom.csv.gz', index_col=0)
     #only choose C and H
     df = df.loc[df.atom_type == 1]
 
@@ -111,13 +111,13 @@ valid = mols.reindex(valid.index).join(valid[['atom_index', 'Shift']])
 train = mols.reindex(train.index).join(train[['atom_index', 'Shift']])
 
 if (dataset == "cascade"):
-    test.to_pickle('cascade_test.pkl.gz', compression='gzip')
-    valid.to_pickle('cascade_valid.pkl.gz', compression='gzip')
-    train.to_pickle('cascade_train.pkl.gz', compression='gzip')
+    test.to_pickle('code/predicting_model/Shift/DFTNN/cascade_test.pkl.gz', compression='gzip')
+    valid.to_pickle('code/predicting_model/Shift/DFTNN/cascade_valid.pkl.gz', compression='gzip')
+    train.to_pickle('code/predicting_model/Shift/DFTNN/cascade_train.pkl.gz', compression='gzip')
 elif (dataset == "own"):
-    test.to_pickle('own_test.pkl.gz', compression='gzip')
-    valid.to_pickle('own_valid.pkl.gz', compression='gzip')
-    train.to_pickle('own_train.pkl.gz', compression='gzip')
+    test.to_pickle('code/predicting_model/Shift/DFTNN/own_test.pkl.gz', compression='gzip')
+    valid.to_pickle('code/predicting_model/Shift/DFTNN/own_valid.pkl.gz', compression='gzip')
+    train.to_pickle('code/predicting_model/Shift/DFTNN/own_train.pkl.gz', compression='gzip')
 
 # Preprocess molecules
 def atomic_number_tokenizer(atom):
@@ -136,7 +136,7 @@ inputs_test = preprocessor.predict(Mol_iter(test))
 import pickle
 
 if (dataset == "cascade"):  
-    with open('cascade_processed_inputs.p', 'wb') as file:        
+    with open('code/predicting_model/Shift/DFTNN/cascade_processed_inputs.p', 'wb') as file:        
         pickle.dump({
             'inputs_train': inputs_train,
             'inputs_valid': inputs_valid,
@@ -144,7 +144,7 @@ if (dataset == "cascade"):
             'preprocessor': preprocessor,
         }, file)
 elif (dataset == "own"):  
-    with open('own_processed_inputs.p', 'wb') as file:        
+    with open('code/predicting_model/Shift/DFTNN/own_processed_inputs.p', 'wb') as file:        
         pickle.dump({
             'inputs_train': inputs_train,
             'inputs_valid': inputs_valid,
