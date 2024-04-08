@@ -74,6 +74,11 @@ class GraphSequence(Sequence):
         # doing predictions. Here, if we've specified a y matrix, we return the
         # x,y pairs for training, otherwise just return the x data.
         if self._y is not None:
+            print(self._y)
+            print("----")
+            print(len(self._y))
+            print(self._y.shape)
+            print(self._y[0].shape)
             return (batch_data, np.concatenate(self._y[batch_indexes]).reshape(-1,1))
 
         else:

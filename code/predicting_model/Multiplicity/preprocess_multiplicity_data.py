@@ -75,7 +75,7 @@ grouped_df = df.groupby(['mol_id'])
 df_Shape = []
 shape_dict = {"mol_id":[], "Shape":[]}
 
-for mol_id, df in grouped_df:
+'''for mol_id, df in grouped_df:
     for shape in df['Shape'].values:
         shape_matrix = [[0, 0, 0, 0, 0, 0, 0, 0, 0],
                         [0, 0, 0, 0, 0, 0, 0, 0, 0],
@@ -97,12 +97,38 @@ for mol_id, df in grouped_df:
             else: print(shape[i])
         
         shape_dict['mol_id'].append(mol_id)
-        shape_dict['Shape'].append(np.asarray(shape_matrix))
+        shape_dict['Shape'].append(np.asarray(shape_matrix).flatten())'''
+
+for mol_id, df in grouped_df:
+    for shape in df['Shape'].values:
+        shape_array = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 
+                        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+                        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
+        
+        for i in range(6):
+                if (i >= len(shape)): shape_array[i*6 + 8] = 1
+                elif (shape[i] == 'm'): shape_array[i*6 + 0] = 1
+                elif (shape[i] == 's'): shape_array[i*6 + 1] = 1
+                elif (shape[i] == 'd'): shape_array[i*6 + 2] = 1
+                elif (shape[i] == 't'): shape_array[i*6 + 3] = 1
+                elif (shape[i] == 'q'): shape_array[i*6 + 4] = 1
+                elif (shape[i] == 'p'): shape_array[i*6 + 5] = 1
+                elif (shape[i] == 'h'): shape_array[i*6 + 6] = 1
+                elif (shape[i] == 'v'): shape_array[i*6 + 7] = 1
+                else: print(shape[i])
+
+                shape_dict['mol_id'].append(mol_id)
+                shape_dict['Shape'].append(np.asarray(shape_array))
     
 shape_df = pd.DataFrame.from_dict(shape_dict)
 
+print(shape_df["Shape"])
+print(shape_df["Shape"].values)
+print(shape_df["Shape"].dtype)
+
 for mol_id,df in grouped_df:
     df_Shape.append([mol_id, df.atom_index.values.astype('int'), df.Shift.values.astype('double'), shape_df.loc[shape_df["mol_id"] == mol_id]["Shape"].values])
+    #df_Shape.append([mol_id, df.atom_index.values.astype('int'), df.Shift.values.astype('double'), df.Shape.values])
     if len(df.atom_index.values) != len(set(df.atom_index.values)):
         print(mol_id)
 

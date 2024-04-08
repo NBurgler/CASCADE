@@ -25,7 +25,7 @@ import tensorflow.keras.backend as K
 from tensorflow.keras.callbacks import ModelCheckpoint, CSVLogger, LearningRateScheduler
 
 from tensorflow.keras.layers import (Input, Embedding, Dense, BatchNormalization, Dropout,
-                                 Concatenate, Multiply, Add, Reshape)
+                                 Concatenate, Multiply, Add, Reshape, Flatten)
 from tensorflow.keras import models
 
 from nfp.layers import (MessageLayer, GRUStep, Squeeze, EdgeNetwork,
@@ -189,10 +189,12 @@ atomwise_shape = ReduceAtomToPro(reducer='unsorted_mean')([atomwise_shape, satom
 atom_state = Dense(atom_features, activation='softplus')(atom_state)
 atom_state = Dense(atom_features, activation='softplus')(atom_state)
 atom_state = Dense(atom_features//2, activation='softplus')(atom_state)
-atom_state = Dense(6 * 9, activation='softmax')(atom_state)
+atom_state = Dense(6 * 9, activation='softplus')(atom_state)
+atom_state = Reshape((6, 9))(atom_state)
+atom_state = Dense(9, activation='softmax')(atom_state)
 
 output = Add()([atom_state, atomwise_shape])
-output = Reshape((6, 9))(output)
+output = Flatten()(output)
 
 filepath = "multiplicity_model.hdf5"
 
@@ -209,7 +211,7 @@ else:
     model = GraphModel([
         atom_index, atom_types, distance_rbf, connectivity, n_pro], [output])
 
-    model.compile(optimizer=keras.optimizers.Adam(lr=lr), loss='mae')
+    model.compile(optimizer=keras.optimizers.Adam(lr=lr), loss='cce')
 
 model.summary()
     
@@ -229,10 +231,11 @@ def decay_fn(epoch, learning_rate):
 #data = train_sequence[0][0]
 #intermediate_out = intermediate_layer_model.predict_on_batch(data)
 #print(intermediate_out)
+    
+#print(train_sequence._y)
 
 lr_decay = LearningRateScheduler(decay_fn)
 
-#print(train_sequence._y)
 hist = model.fit(train_sequence, validation_data=valid_sequence,
                  epochs=epochs, verbose=1, 
                  callbacks=[checkpoint, csv_logger, lr_decay])

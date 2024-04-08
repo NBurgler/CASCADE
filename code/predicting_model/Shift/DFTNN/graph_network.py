@@ -56,13 +56,9 @@ args = parser.parse_args()
 train = pd.read_pickle(path + 'own_train.pkl.gz')
 valid = pd.read_pickle(path + 'own_valid.pkl.gz')
 
-print(train.Shift[0:10])
-
 y_train = train.Shift.values
 y_valid = valid.Shift.values
 
-print(y_train[0:10])
-print(y_train[0].dtype)
 
 def rbf_expansion(distances, mu=0, delta=0.1, kmax=256):
     k = np.arange(0, kmax)

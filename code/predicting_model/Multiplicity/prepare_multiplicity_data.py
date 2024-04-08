@@ -39,12 +39,16 @@ for sampleText in samples:
         atom_dict["atom_type"].append(atom_type)
         atom_dict["atom_index"].append(atom.GetIdx())
                        # m  s  d  t  q  p  h hept -
-        shape_matrix = [[0, 0, 0, 0, 0, 0, 0, 0, 0],
+        '''shape_matrix = [[0, 0, 0, 0, 0, 0, 0, 0, 0],
                         [0, 0, 0, 0, 0, 0, 0, 0, 0],
                         [0, 0, 0, 0, 0, 0, 0, 0, 0],
                         [0, 0, 0, 0, 0, 0, 0, 0, 0],
                         [0, 0, 0, 0, 0, 0, 0, 0, 0],
-                        [0, 0, 0, 0, 0, 0, 0, 0, 0]]
+                        [0, 0, 0, 0, 0, 0, 0, 0, 0]]'''
+        
+        '''shape_array = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 
+                        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+                        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]'''
 
         if (atom_type == 1):
             atomSplit = sampleSplit[3+iter_H].split(",")
@@ -63,6 +67,20 @@ for sampleText in samples:
                 else: print(shape[i])
                 
             atom_dict["Shape"].append(shape_matrix)'''
+            '''for i in range(6):
+                if (i >= len(shape)): shape_array[(i+1)*8] = 1
+                elif (shape[i] == 'm'): shape_array[(i+1)*0] = 1
+                elif (shape[i] == 's'): shape_array[(i+1)*1] = 1
+                elif (shape[i] == 'd'): shape_array[(i+1)*2] = 1
+                elif (shape[i] == 't'): shape_array[(i+1)*3] = 1
+                elif (shape[i] == 'q'): shape_array[(i+1)*4] = 1
+                elif (shape[i] == 'p'): shape_array[(i+1)*5] = 1
+                elif (shape[i] == 'h'): shape_array[(i+1)*6] = 1
+                elif (shape[i] == 'v'): shape_array[(i+1)*7] = 1
+                else: print(shape[i])
+                
+            atom_dict["Shape"].append(shape_array)'''
+            
             atom_dict["Shape"].append(shape)
 
             iter_H += 1
