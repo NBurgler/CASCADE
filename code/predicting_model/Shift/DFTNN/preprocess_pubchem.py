@@ -68,7 +68,7 @@ elif (dataset == "own"):
             print(Chem.MolToSmiles(bad_mol))
             continue
 
-        mols["Mol"][i] = new_mol
+        mols.loc[i, "Mol"] = new_mol
         i += 1
 
     df = pd.read_csv('code/predicting_model/Shift/DFTNN/own_data_atom.csv.gz', index_col=0)
@@ -85,13 +85,13 @@ def to_C(atom):
 
 df['Mol'] = mols.reindex(df.mol_id).Mol.values
 df = df.dropna()
-print(df)
+
 df = df.loc[df.apply(lambda x: to_C(x['Mol'].GetAtomWithIdx(x['atom_index'])), axis=1).values]
 
 grouped_df = df.groupby(['mol_id'])
 df_Shift = []
 for mol_id,df in grouped_df:
-    df_Shift.append([mol_id, df.atom_index.values.astype('int'), df.Shift.values.astype(np.float32)])
+    df_Shift.append([mol_id[0], df.atom_index.values.astype('int'), df.Shift.values.astype(np.float32)])
     if len(df.atom_index.values) != len(set(df.atom_index.values)):
         print(mol_id)
 

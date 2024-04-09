@@ -1,0 +1,94 @@
+node_sets {
+    key: "atom"
+    value { 
+        description: "An atom."
+    
+        features: {
+            key: "atom_num"
+            value: {
+                description: "The atom number."
+                dtype: DT_INT64
+            }
+        }
+
+        features: {
+            key: "_Shift"
+            value: {
+                description: "The chemical shift of the atom."
+                dtype: DT_FLOAT
+                shape: { dim { size: -1 }}
+            }
+        }
+
+        features: {
+            key: "_Shape"
+            value: {
+                description: "The shape of the peak that the atom corresponds to."
+                dtype: DT_INT64
+                shape: { dim { size: -1 } dim { size: 6 } dim { size: 9 } }
+            }
+        }
+    }
+}
+
+edge_sets {
+    key: "bond"
+    value {
+        description: "An atom bond."
+        source: "atom"
+        target: "atom"
+
+        features: {
+            key: "bond_type"
+            value: {
+                description: "The type of bond (single, double, etc.)."
+                dtype: DT_INT64
+            }
+        }
+        features: {
+            key: "distance"
+            value: {
+                description: "The interatomic distance."
+                dtype: DT_FLOAT
+            }
+        }
+    }
+}
+
+context {
+    features {
+        key: "n_atoms"
+        value: {
+            description: "The number of atoms in the molecule."
+            dtype: DT_INT64
+        }
+    }
+    features {
+        key: "n_bonds"
+        value: {
+            description: "The number of bonds in the molecule."
+            dtype: DT_INT64
+        }
+    }
+    features {
+        key: "n_pro"
+        value: {
+            description: "The number of protons in the molecule."
+            dtype: DT_INT64
+        }
+    }
+    features {
+        key: "mol_id"
+        value: {
+            description: "A number to identify the molecule by."
+            dtype: DT_INT64
+        }
+    }
+    features {
+        key: "smiles"
+        value: {
+            description: "The smiles of the molecule."
+            dtype: DT_STRING
+        }
+    }
+}

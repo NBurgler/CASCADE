@@ -21,7 +21,7 @@ from nfp.preprocessing import MolShapePreprocessor, GraphSequence, features
 
 mols = pd.read_csv('code/predicting_model/Multiplicity/own_data_multiplicity_mol.csv.gz', index_col=0)
 i = 0
-print(mols)
+
 for mol in mols["Mol"]:
     new_mol = Chem.MolFromSmiles(mol)
     new_mol = Chem.AddHs(new_mol, addCoords=True)
@@ -51,7 +51,7 @@ for mol in mols["Mol"]:
         print(Chem.MolToSmiles(bad_mol))
         continue
 
-    mols["Mol"][i] = new_mol
+    mols.loc[i, "Mol"] = new_mol
     i += 1
 
 df = pd.read_csv('code/predicting_model/Multiplicity/own_data_multiplicity_atom.csv.gz', index_col=0)
@@ -127,12 +127,12 @@ shape_df = pd.DataFrame.from_dict(shape_dict)
 #print(shape_df["Shape"].dtype)
 
 for mol_id, df in grouped_df:
-    df_Shape.append([mol_id, df.Mol.values, df.atom_index.values.astype('int'), df.Shift.values.astype('double'), shape_df.loc[shape_df["mol_id"] == mol_id]["Shape"].values])
+    df_Shape.append([mol_id[0], df.atom_index.values.astype('int'), df.Shift.values.astype('double'), shape_df.loc[shape_df["mol_id"] == mol_id]["Shape"].values])
     #df_Shape.append([mol_id, df.atom_index.values.astype('int'), df.Shift.values.astype('double'), df.Shape.values])
     if len(df.atom_index.values) != len(set(df.atom_index.values)):
         print(mol_id)
 
-df_Shape = pd.DataFrame(df_Shape, columns=['mol_id', 'Mol', 'atom_index', 'Shift', 'Shape'])
+df_Shape = pd.DataFrame(df_Shape, columns=['mol_id', 'atom_index', 'Shift', 'Shape'])
 
 test = df_Shape.sample(n=10, random_state=666)
 valid = df_Shape[~df_Shape.mol_id.isin(test.mol_id)].sample(n=10, random_state=666)
@@ -154,7 +154,6 @@ train.to_pickle('code/predicting_model/Multiplicity/mult_train.pkl.gz', compress
 # Preprocess molecules
 def Mol_iter(df):
     for index,r in df.iterrows():
-        print(r)
         yield(r['Mol'], r['atom_index'], r['Shift'])
 
 preprocessor = MolShapePreprocessor(
