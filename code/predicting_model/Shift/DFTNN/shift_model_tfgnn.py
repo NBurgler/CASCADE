@@ -22,7 +22,7 @@ with open(path + 'own_processed_inputs.p', 'rb') as f:
 print(input_data)
 
 dataset = train
-graph_schema = tfgnn.read_schema("GraphSchema.pbtxt")
+graph_schema = tfgnn.read_schema("code/predicting_model/GraphSchema.pbtxt")
 graph_tensor_spec = tfgnn.create_graph_spec_from_schema_pb(graph_schema)
 print(graph_tensor_spec)
 dataset = dataset.map(

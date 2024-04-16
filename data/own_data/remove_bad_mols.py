@@ -1,6 +1,6 @@
 # Remove the "bad_mols" from the dataset
 
-with open('cleaned_dataset.txt', 'w') as cleaned_dataset:
+with open('cleaned_full_dataset.txt', 'w') as cleaned_dataset:
     dataset = open('canon_dataset.txt', 'r')
     bad_mols = open('bad_mols.txt', 'r')
     bad_mols = bad_mols.read().split('\n')

@@ -5,7 +5,7 @@ from rdkit import Chem
 # Make the smiles canonical by converting them to molecules and back to smiles
 
 with open('canon_dataset.txt', 'w') as new_file:
-    old_file = open('output_all.txt', 'r')
+    old_file = open('cleaned_full_dataset.txt', 'r')
     text = old_file.read()
     samples = text.split('\n\n')
     for sampleText in samples:
