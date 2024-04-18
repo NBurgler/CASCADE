@@ -1,4 +1,6 @@
 import pandas as pd
+import tensorflow as tf
+import tensorflow_gnn as tfgnn
 from rdkit import Chem
 from rdkit.Chem import AllChem
 
@@ -42,7 +44,7 @@ def processData(filepath):
     samples = text.split('\n\n')
     mol_id = 0
 
-    mol_dict = {"mol_id":[], "smiles":[], "n_atoms":[]}
+    mol_dict = {"mol_id":[], "smiles":[], "n_atoms":[], "n_bonds":[]}
     atom_dict = {"mol_id":[], "atom_num":[], "Shift":[]}
     bond_dict = {"mol_id":[], "bond_type":[], "distance":[], "source":[], "target":[]}
 
@@ -59,11 +61,13 @@ def processData(filepath):
         smilesH = sampleSplit[1]
         mol = Chem.MolFromSmiles(smiles)
         n_atoms = mol.GetNumAtoms(onlyExplicit=False)
+        n_bonds = mol.GetNumBonds(onlyHeavy=False)
 
         mol_dict["mol_id"].append(mol_id)
         mol_dict["smiles"].append(smiles)
         mol_dict["n_atoms"].append(n_atoms)
-        
+        mol_dict["n_bonds"].append(n_bonds)
+
         iter_H = 0
         mol = Chem.AddHs(mol)
         mol, embedding_found = findEmbedding(mol)
@@ -112,8 +116,36 @@ def processData(filepath):
     bond_df.to_csv("code/predicting_model/Shift/DFTNN/own_data_bond.csv.gz", compression='gzip')
 
 
+def create_graph_tensor(mol_data, atom_data, bond_data):
+    graph_tensor = tfgnn.GraphTensor.from_pieces(
+        context = {
+            "molecule": tfgnn.Context.from_fields(
+                features = {"smiles": mol_data["smiles"]}
+            )
+        },
+        node_sets = {
+            "atom": tfgnn.NodeSet.from_fields(
+                sizes = mol_data["n_atoms"],
+                features = {"atom_num": atom_data["atom_num"],
+                            "_shift": atom_data["Shift"]}
+            )
+        },
+        edge_sets = {
+            "bonds": tfgnn.EdgeSet.from_fields(
+                sizes = mol_data["n_bonds"],
+                adjacency = tfgnn.Adjacency.from_indices(
+                    source = ("atom", bond_data["source"]),
+                    target = ("atom", bond_data["target"])),
+                features = {"bond_type": bond_data["bond_type"],
+                            "distance": bond_data["distance"]}
+            )
+        }
+    )
+
+    return graph_tensor
+
 if __name__ == "__main__":
-    # crate dataframes if they do not exist yet
+    # create dataframes if they do not exist yet
     if not os.path.isfile("code/predicting_model/Shift/DFTNN/own_data_mol.csv.gz"):
         processData('data/own_data/cleaned_full_dataset.txt')
 
@@ -121,6 +153,11 @@ if __name__ == "__main__":
     atom_df = pd.read_csv("code/predicting_model/Shift/DFTNN/own_data_atom.csv.gz", index_col=0)
     bond_df = pd.read_csv("code/predicting_model/Shift/DFTNN/own_data_bond.csv.gz", index_col=0)
     
+    graph_schema = tfgnn.read_schema("code/predicting_model/GraphSchema.pbtxt")
+    graph_tensor_spec = tfgnn.create_graph_spec_from_schema_pb(graph_schema)
+
     for mol_id in mol_df["mol_id"]:
-        for atom in atom_df.loc(atom_df["mol_id"] == mol_id):
-            print(atom)
+        mol_data = mol_df.loc[mol_df["mol_id"] == mol_id]
+        atom_data = atom_df.loc[atom_df["mol_id"] == mol_id]
+        bond_data = bond_df.loc[bond_df["mol_id"] == mol_id]
+        graph_tensor = create_graph_tensor(mol_data, atom_data, bond_data)
