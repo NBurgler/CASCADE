@@ -46,9 +46,9 @@ edge_sets {
             }
         }
     }
-    key: "hydrogen"
+    key: "_readout/shift"
     value {
-        description: "Edges marking the hydrogen atoms for readout"
+        description: "Edges marking the hydrogen atoms for shift prediction"
         source: "atom"
         target: "_readout"
     }
