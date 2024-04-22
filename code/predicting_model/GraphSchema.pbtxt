@@ -46,6 +46,12 @@ edge_sets {
             }
         }
     }
+    key: "hydrogen"
+    value {
+        description: "Edges marking the hydrogen atoms for readout"
+        source: "atom"
+        target: "_readout"
+    }
 }
 
 context {
