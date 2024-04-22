@@ -11,17 +11,21 @@ node_sets {
             }
         }
     }
-    key: "_readout"
-        value{
-            description: "the readout nodes."
+}
 
-            features: {
-                key:"Shift"
-                value: {
-                description: "The chemical shift of the atom."
-                dtype: DT_FLOAT
+node_sets {
+    key: "_readout"
+    value {
+        description: "the readout nodes."
+
+        features: {
+            key:"Shift"
+            value: {
+            description: "The chemical shift of the atom."
+            dtype: DT_FLOAT
             }
         }
+    }       
 }
 
 edge_sets {
@@ -46,6 +50,9 @@ edge_sets {
             }
         }
     }
+}
+
+edge_sets {
     key: "_readout/shift"
     value {
         description: "Edges marking the hydrogen atoms for shift prediction"

@@ -1,3 +1,4 @@
+import numpy as np
 import pandas as pd
 import tensorflow as tf
 import tensorflow_gnn as tfgnn
@@ -44,7 +45,7 @@ def processData(filepath):
     samples = text.split('\n\n')
     mol_id = 0
 
-    mol_dict = {"mol_id":[], "smiles":[], "n_atoms":[], "n_bonds":[], "n_pro":[], "H_indices":[]}
+    mol_dict = {"mol_id":[], "smiles":[], "n_atoms":[], "n_bonds":[], "n_pro":[]}
     atom_dict = {"mol_id":[], "atom_num":[], "Shift":[]}
     bond_dict = {"mol_id":[], "bond_type":[], "distance":[], "source":[], "target":[]}
 
@@ -87,7 +88,6 @@ def processData(filepath):
                 if (atom_num == 1):
                     atomSplit = sampleSplit[3+iter_H].split(",")
                     atom_dict["Shift"].append(atomSplit[1])
-                    mol_dict["H_indices"].append(atom.GetIdx())
 
                     iter_H += 1
                 else:
@@ -119,6 +119,7 @@ def processData(filepath):
 
 
 def create_graph_tensor(mol_data, atom_data, bond_data):
+    H_indices = atom_data.index[atom_data["atom_num"] == 1].tolist()
     graph_tensor = tfgnn.GraphTensor.from_pieces(
 
         context = tfgnn.Context.from_fields(features = {"smiles": mol_data["smiles"]}),
@@ -130,7 +131,7 @@ def create_graph_tensor(mol_data, atom_data, bond_data):
             ),
             "_readout": tfgnn.NodeSet.from_fields(
                 sizes = mol_data["n_pro"],
-                features = {"shift": atom_data["Shift"]}
+                features = {"shift": atom_data["Shift"][H_indices]}
             )
         },
 
@@ -146,8 +147,9 @@ def create_graph_tensor(mol_data, atom_data, bond_data):
             "_readout/shift": tfgnn.EdgeSet.from_fields(
                 sizes = mol_data["n_pro"],
                 adjacency = tfgnn.Adjacency.from_indices(
-                    source = ("atom", bond_data["H_indices"]),
-                    target = ("_readout", range(mol_data["n_pro"])))
+                    source = ("atom", H_indices),
+                    target = ("_readout", list(range(mol_data["n_pro"].values[0])))
+                )
             )
         }
     )
