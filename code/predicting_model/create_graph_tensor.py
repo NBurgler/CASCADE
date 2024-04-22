@@ -44,7 +44,7 @@ def processData(filepath):
     samples = text.split('\n\n')
     mol_id = 0
 
-    mol_dict = {"mol_id":[], "smiles":[], "n_atoms":[], "n_bonds":[]}
+    mol_dict = {"mol_id":[], "smiles":[], "n_atoms":[], "n_bonds":[], "n_pro":[], "H_indices":[]}
     atom_dict = {"mol_id":[], "atom_num":[], "Shift":[]}
     bond_dict = {"mol_id":[], "bond_type":[], "distance":[], "source":[], "target":[]}
 
@@ -67,6 +67,7 @@ def processData(filepath):
         mol_dict["smiles"].append(smiles)
         mol_dict["n_atoms"].append(n_atoms)
         mol_dict["n_bonds"].append(n_bonds)
+        mol_dict["n_pro"].append(n_atoms - mol.GetNumHeavyAtoms())
 
         iter_H = 0
         mol = Chem.AddHs(mol)
@@ -86,6 +87,7 @@ def processData(filepath):
                 if (atom_num == 1):
                     atomSplit = sampleSplit[3+iter_H].split(",")
                     atom_dict["Shift"].append(atomSplit[1])
+                    mol_dict["H_indices"].append(atom.GetIdx())
 
                     iter_H += 1
                 else:
@@ -124,8 +126,11 @@ def create_graph_tensor(mol_data, atom_data, bond_data):
         node_sets = {
             "atom": tfgnn.NodeSet.from_fields(
                 sizes = mol_data["n_atoms"],
-                features = {"atom_num": atom_data["atom_num"],
-                            "_shift": atom_data["Shift"]}
+                features = {"atom_num": atom_data["atom_num"]}
+            ),
+            "_readout": tfgnn.NodeSet.from_fields(
+                sizes = mol_data["n_pro"],
+                features = {"shift": atom_data["Shift"]}
             )
         },
 
@@ -137,6 +142,12 @@ def create_graph_tensor(mol_data, atom_data, bond_data):
                     target = ("atom", bond_data["target"])),
                 features = {"bond_type": bond_data["bond_type"],
                             "distance": bond_data["distance"]}
+            ),
+            "_readout/shift": tfgnn.EdgeSet.from_fields(
+                sizes = mol_data["n_pro"],
+                adjacency = tfgnn.Adjacency.from_indices(
+                    source = ("atom", bond_data["H_indices"]),
+                    target = ("_readout", range(mol_data["n_pro"])))
             )
         }
     )
