@@ -118,11 +118,9 @@ def processData(filepath):
 
 def create_graph_tensor(mol_data, atom_data, bond_data):
     graph_tensor = tfgnn.GraphTensor.from_pieces(
-        context = {
-            "molecule": tfgnn.Context.from_fields(
-                features = {"smiles": mol_data["smiles"]}
-            )
-        },
+
+        context = tfgnn.Context.from_fields(features = {"smiles": mol_data["smiles"]}),
+
         node_sets = {
             "atom": tfgnn.NodeSet.from_fields(
                 sizes = mol_data["n_atoms"],
@@ -130,6 +128,7 @@ def create_graph_tensor(mol_data, atom_data, bond_data):
                             "_shift": atom_data["Shift"]}
             )
         },
+
         edge_sets = {
             "bonds": tfgnn.EdgeSet.from_fields(
                 sizes = mol_data["n_bonds"],
@@ -156,8 +155,11 @@ if __name__ == "__main__":
     graph_schema = tfgnn.read_schema("code/predicting_model/GraphSchema.pbtxt")
     graph_tensor_spec = tfgnn.create_graph_spec_from_schema_pb(graph_schema)
 
-    for mol_id in mol_df["mol_id"]:
-        mol_data = mol_df.loc[mol_df["mol_id"] == mol_id]
-        atom_data = atom_df.loc[atom_df["mol_id"] == mol_id]
-        bond_data = bond_df.loc[bond_df["mol_id"] == mol_id]
-        graph_tensor = create_graph_tensor(mol_data, atom_data, bond_data)
+    with tf.io.TFRecordWriter("data/own_data/shift_graph.tfrecords") as writer:
+        for mol_id in tqdm(mol_df["mol_id"]):
+            mol_data = mol_df.loc[mol_df["mol_id"] == mol_id]
+            atom_data = atom_df.loc[atom_df["mol_id"] == mol_id]
+            bond_data = bond_df.loc[bond_df["mol_id"] == mol_id]
+            graph_tensor = create_graph_tensor(mol_data, atom_data, bond_data)
+            example = tfgnn.write_example(graph_tensor)
+            writer.write(example.SerializeToString())
