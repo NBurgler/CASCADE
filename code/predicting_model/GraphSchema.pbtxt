@@ -10,15 +10,18 @@ node_sets {
                 dtype: DT_INT64
             }
         }
+    }
+    key: "_readout"
+        value{
+            description: "the readout nodes."
 
-        features: {
-            key: "_Shift"
-            value: {
+            features: {
+                key:"Shift"
+                value: {
                 description: "The chemical shift of the atom."
                 dtype: DT_FLOAT
             }
         }
-    }
 }
 
 edge_sets {
