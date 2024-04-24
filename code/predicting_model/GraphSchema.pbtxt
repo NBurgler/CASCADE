@@ -19,7 +19,7 @@ node_sets {
         description: "the readout nodes."
 
         features: {
-            key:"Shift"
+            key:"shift"
             value: {
             description: "The chemical shift of the atom."
             dtype: DT_FLOAT
