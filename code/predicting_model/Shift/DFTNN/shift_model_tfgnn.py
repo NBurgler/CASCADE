@@ -21,8 +21,8 @@ def node_sets_fn(node_set, *, node_set_name):
     
 def rbf_expansion(distances, mu=0, delta=0.1, kmax=256):
     k = np.arange(0, kmax)
-    logits = -(np.atleast_2d(distances).T - (-mu + delta * k))**2 / delta
-    return np.exp(logits)
+    logits = -(tf.expand_dims(distances, 1) - (-mu + delta * k))**2 / delta #Not sure if this is correct, but haven't found a way to check
+    return tf.math.exp(logits)
     
 def edge_sets_fn(edge_set, *, edge_set_name):
     features = edge_set.get_features_dict()
@@ -30,7 +30,6 @@ def edge_sets_fn(edge_set, *, edge_set_name):
     if edge_set_name == "bond":
         #replace interatomic distance by the rbf distance
         distances = features.pop('distance')
-        print(distances)
         features['rbf_distance'] = rbf_expansion(distances)
     
     return features
@@ -48,8 +47,6 @@ if __name__ == "__main__":
     preproc_input_spec = dataset.element_spec
 
     preproc_input = tf.keras.layers.Input(type_spec=preproc_input_spec)
-    print(preproc_input.edge_sets['bond'].__getitem__('distance'))
+    tf.keras.backend.print_tensor(preproc_input.edge_sets['bond'].__getitem__('distance'))
     graph = tfgnn.keras.layers.MapFeatures(node_sets_fn=node_sets_fn, edge_sets_fn=edge_sets_fn)(preproc_input)
-    
-    #graph = tfgnn.keras.layers.MapFeatures(edge_sets_fn=edge_sets_fn)(graph)
-    print(graph.edge_sets['bond'].__getitem__('rbf_distance'))
+    tf.keras.backend.print_tensor(graph.edge_sets['bond'].__getitem__('rbf_distance'))
