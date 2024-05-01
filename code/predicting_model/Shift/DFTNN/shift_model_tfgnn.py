@@ -46,7 +46,24 @@ if __name__ == "__main__":
     dataset = dataset.map(tfgnn.keras.layers.ParseExample(graph_tensor_spec))
     preproc_input_spec = dataset.element_spec
 
+
+    #preprocessing layers
     preproc_input = tf.keras.layers.Input(type_spec=preproc_input_spec)
-    tf.keras.backend.print_tensor(preproc_input.edge_sets['bond'].__getitem__('distance'))
     graph = tfgnn.keras.layers.MapFeatures(node_sets_fn=node_sets_fn, edge_sets_fn=edge_sets_fn)(preproc_input)
-    tf.keras.backend.print_tensor(graph.edge_sets['bond'].__getitem__('rbf_distance'))
+    
+    #message passing layers
+    for _ in range(3):
+        graph = tfgnn.keras.layers.NodeSetUpdate(
+            edge_set_inputs="bond",
+            next_state=tfgnn.keras.layers.Dense(256, use_bias=False)
+        )(graph)
+
+        graph = tfgnn.keras.layers.EdgeSetUpdate(
+            next_state=tfgnn.keras.layers.NextStateFromConcat(
+                transformation= tfgnn.keras.layers.Dense(512, activation="softplus")
+            )
+        )(graph)
+
+        graph = tfgnn.keras.layers.EdgeSetUpdate(next_state=tfgnn.keras.layers.Dense(256))(graph)
+        graph = tfgnn.keras.layers.EdgeSetUpdate(next_state=tfgnn.keras.layers.Dense(256, activation="softplus"))(graph)
+        graph = tfgnn.keras.layers.EdgeSetUpdate(next_state=tfgnn.keras.layers.Dense(256, activation="softplus"))(graph)
