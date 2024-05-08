@@ -48,6 +48,18 @@ def set_initial_edge_state(edge_set, *, edge_set_name):
         features['rbf_distance'] = rbf_expansion(distances)'''
     return tf.keras.layers.Embedding(3, 256)(edge_set["bond_type"])
 
+def edge_updating():
+    return tf.keras.Sequential([
+        tf.keras.layers.Dense(512, activation="softplus"),
+        tf.keras.layers.Dense(256),
+        tf.keras.layers.Dense(256, activation="softplus"),
+        tf.keras.layers.Dense(256, activation="softplus")])
+
+def node_updating():
+    return tf.keras.Sequential([
+        tf.keras.layers.Dense(256, activation="softplus"),
+        tf.keras.layers.Dense(256)])
+
 def build_model():
     batch_size = 32
     dataset = tf.data.TFRecordDataset(filenames=["data/own_data/shift_graph.tfrecords"])
@@ -80,24 +92,28 @@ def build_model():
 
         # Edge Updating
         # Turn into graph updates
-        edge_message = tfgnn.keras.layers.EdgeSetUpdate(
-            next_state=tfgnn.keras.layers.NextStateFromConcat(
-                transformation= tf.keras.layers.Dense(512, activation="softplus")
-            )
+        edge_message = tfgnn.keras.layers.GraphUpdate(
+                edge_sets={"bond": tfgnn.keras.layers.EdgeSetUpdate(
+                    next_state=tfgnn.keras.layers.NextStateFromConcat(
+                        transformation=edge_updating()
+                )
+            )}
         )(node_message)
-        edge_message = tfgnn.keras.layers.EdgeSetUpdate(next_state=tf.keras.layers.Dense(256))(edge_message)
-        edge_message = tfgnn.keras.layers.EdgeSetUpdate(next_state=tf.keras.layers.Dense(256, activation="softplus"))(edge_message)
-        edge_message = tfgnn.keras.layers.EdgeSetUpdate(next_state=tf.keras.layers.Dense(256, activation="softplus"))(edge_message)
-        edge_message = tf.keras.layers.Add()([graph, edge_message])
+        
+        #edge_message = tf.keras.layers.Add()([graph.edge_sets["bond"].__getitem__(tfgnn.HIDDEN_STATE), edge_message.edge_sets["bond"].__getitem__(tfgnn.HIDDEN_STATE)])
+        edge_message = tfgnn.combine_values([graph.edge_sets["bond"].__getitem__(tfgnn.HIDDEN_STATE), 
+                                            edge_message.edge_sets["bond"].__getitem__(tfgnn.HIDDEN_STATE)], combine_type="sum")
 
-        graph_message = tf.keras.layers.Multiply()([node_message, edge_message])
-        graph_message = tf.keras.layers.AveragePooling2D()(graph_message)
-        graph_message = tfgnn.keras.layers.GraphUpdate(node_sets={"atom": tfgnn.keras.layers.NodeSetUpdate(
-            next_state= tf.keras.layers.Dense(256, activation="softplus")
-        )})(graph_message) # Not sure if edge states are also updated this way
-        graph_message = tfgnn.keras.layers.GraphUpdate(node_sets={"atom": tfgnn.keras.layers.NodeSetUpdate(
-            next_state= tf.keras.layers.Dense(256)
-        )})(graph_message)
+        graph_message = tf.keras.layers.Multiply()([node_message.node_sets["atom"].__getitem__(tfgnn.HIDDEN_STATE), edge_message])
+
+        graph_message = tfgnn.pool_neighbors_to_node(graph_message, edge_set_name="bond", to_tag=tfgnn.SOURCE, reduce_type="sum", feature_name=tfgnn.HIDDEN_STATE)
+
+        graph_message = tfgnn.keras.layers.GraphUpdate(
+            node_sets={"atom": tfgnn.keras.layers.NodeSetUpdate(
+                {"bond": tfgnn.keras.layers.SimpleConv(tf.keras.layers.Dense(256), "mean")},
+                next_state=node_updating())
+            }
+        )(graph_message)
 
         graph = tf.keras.layers.Add()([graph, graph_message])
 
