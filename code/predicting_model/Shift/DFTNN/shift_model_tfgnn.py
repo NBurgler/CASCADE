@@ -86,12 +86,11 @@ def build_model():
         node_message = tfgnn.keras.layers.GraphUpdate(
             node_sets={"atom": tfgnn.keras.layers.NodeSetUpdate(
                 {"bond": tfgnn.keras.layers.SimpleConv(tf.keras.layers.Dense(256), "mean")},
-                next_state=tfgnn.keras.layers.NextStateFromConcat(tf.keras.layers.Dense(256, use_bias=False)))
-            }
+                next_state=tfgnn.keras.layers.NextStateFromConcat(tf.keras.layers.Dense(256, use_bias=False))
+            )}
         )(graph)
 
         # Edge Updating
-        # Turn into graph updates
         edge_message = tfgnn.keras.layers.GraphUpdate(
                 edge_sets={"bond": tfgnn.keras.layers.EdgeSetUpdate(
                     next_state=tfgnn.keras.layers.NextStateFromConcat(
@@ -119,7 +118,7 @@ def build_model():
 
     readout_features = tfgnn.keras.layers.Pool(
         tfgnn.NODES, "mean", node_set_name="atom")(graph)
-    readout_features = tfgnn.keras.layers.StructuredReadout(readout_features)
+    readout_features = tfgnn.keras.layers.StructuredReadout("_readout/shift")(readout_features)
     logits = tf.keras.layers.Dense(256, activation="softplus")(readout_features)
     logits = tf.keras.layers.Dense(256, activation="softplus")(logits)
     logits = tf.keras.layers.Dense(128, activation="softplus")(logits)
