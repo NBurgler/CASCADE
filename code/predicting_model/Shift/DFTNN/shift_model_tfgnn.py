@@ -7,9 +7,21 @@ import pickle
 import sys
 import gnn_layers
 
-sys.path.append('code/predicting_model')
+import wandb
+from wandb.keras import WandbCallback
 
-path = "/home/s3665828/Documents/Masters_Thesis/repo/CASCADE/code/predicting_model/Shift/DFTNN/"
+wandb.init(
+        project="nmr-prediction",
+        dir="/home/s3665828/Documents/Masters_Thesis/repo/CASCADE/code/predicting_model/H/DFTNN",
+        config={
+        "learning_rate": 5E-4,
+        "dataset": "cascade",
+        "epochs": 10,
+        "setting": "tfgnn",
+    }
+)
+
+sys.path.append('code/predicting_model')
 
 def node_sets_fn(node_set, *, node_set_name):
     features = node_set.get_features_dict()
@@ -62,18 +74,7 @@ def node_updating():
         tf.keras.layers.Dense(256)])
 
 
-def build_model():
-    batch_size = 32
-    dataset = tf.data.TFRecordDataset(filenames=["data/own_data/shift_graph.tfrecords"])
-    dataset = dataset.batch(batch_size)
-    #TODO: train-test split
-
-    graph_schema = tfgnn.read_schema("code/predicting_model/GraphSchema.pbtxt")
-    graph_tensor_spec = tfgnn.create_graph_spec_from_schema_pb(graph_schema)
-    dataset = dataset.map(tfgnn.keras.layers.ParseExample(graph_tensor_spec))
-    preproc_input_spec = dataset.element_spec
-
-
+def build_model(preproc_input_spec):
     #preprocessing layers
     preproc_input = tf.keras.layers.Input(type_spec=preproc_input_spec)
 
@@ -110,6 +111,64 @@ def build_model():
 
     return tf.keras.Model(inputs=[preproc_input], outputs=[output])
 
+def decode_fn(record_bytes):
+  graph = tfgnn.parse_example(
+      graph_tensor_spec, record_bytes, validate=True)
+
+  # extract label from node and remove from input graph
+  node_features = graph.node_sets["_readout"].get_features_dict()
+  label = node_features.pop('shift')
+
+  return graph, label
+
+
 if __name__ == "__main__":
-    model = build_model()
+    path = "/home/s3665828/Documents/Masters_Thesis/repo/CASCADE/code/predicting_model/Shift/DFTNN/"
+    batch_size = 5
+    lr = 5E-4
+    epochs = 10
+
+    dataset = tf.data.TFRecordDataset(filenames=["data/own_data/shift_graph.tfrecords"])
+    
+    dataset = dataset.batch(batch_size)
+
+    graph_schema = tfgnn.read_schema("code/predicting_model/GraphSchema.pbtxt")
+    graph_tensor_spec = tfgnn.create_graph_spec_from_schema_pb(graph_schema)
+    dataset = dataset.map(decode_fn)
+    preproc_input_spec, label_spec = dataset.element_spec
+
+    dataset = dataset.shuffle(buffer_size=10)
+    train_size = 70
+    valid_size = 15
+    test_size = 15
+
+    train_ds = dataset.take(train_size)
+    test_ds = dataset.skip(train_size)
+    valid_ds = test_ds.take(valid_size)
+    test_ds = test_ds.skip(test_size)
+    
+    x, y = train_ds.take(1).get_single_element()
+    print(x.node_sets["atom"])
+    print("-------------")
+    print(y)
+
+    model = build_model(preproc_input_spec)
+    model.compile(optimizer=tf.keras.optimizers.Adam(lr=lr), loss='mae')
     model.summary()
+
+    checkpoint = tf.keras.callbacks.ModelCheckpoint(path, save_best_only=True, period=1, verbose=1)
+    csv_logger = tf.keras.callbacks.CSVLogger('own_log.csv')
+
+    def decay_fn(epoch, learning_rate):
+        """ Jorgensen decays to 0.96*lr every 100,000 batches, which is approx
+        every 28 epochs """
+        if (epoch % 70) == 0:
+            return 0.96 * learning_rate
+        else:
+            return learning_rate
+        
+    lr_decay = tf.keras.callbacks.LearningRateScheduler(decay_fn)
+
+    hist = model.fit(train_ds, validation_data=valid_ds,
+                    epochs=epochs, verbose=1, 
+                    callbacks=[checkpoint, csv_logger, lr_decay, WandbCallback()])
