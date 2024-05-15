@@ -5,6 +5,7 @@ import tensorflow_gnn as tfgnn
 import pandas as pd
 import pickle
 import sys
+import gnn_layers
 
 sys.path.append('code/predicting_model')
 
@@ -60,6 +61,7 @@ def node_updating():
         tf.keras.layers.Dense(256, activation="softplus"),
         tf.keras.layers.Dense(256)])
 
+
 def build_model():
     batch_size = 32
     dataset = tf.data.TFRecordDataset(filenames=["data/own_data/shift_graph.tfrecords"])
@@ -80,45 +82,27 @@ def build_model():
     graph = tfgnn.keras.layers.MapFeatures(node_sets_fn=set_initial_node_state, edge_sets_fn=set_initial_edge_state)(graph)
     #TODO: no rbf expansion currently
 
-    
     # Message passing layers
+    # First, the edges are updated according to the layers in edge_updating
+    # Then, the updated edge states are pooled to the node states (hadamard product + element-wise sum)
+    # Finally, the pooled edge states are updated according to the layers in node_updating
+
     for _ in range(3):
-        node_message = tfgnn.keras.layers.GraphUpdate(
+        graph = tfgnn.keras.layers.GraphUpdate(
+            edge_sets={"bond": tfgnn.keras.layers.EdgeSetUpdate(
+                    next_state=tfgnn.keras.layers.ResidualNextState(
+                        residual_block=edge_updating()
+                )
+            )},
             node_sets={"atom": tfgnn.keras.layers.NodeSetUpdate(
-                {"bond": tfgnn.keras.layers.SimpleConv(tf.keras.layers.Dense(256), "mean")},
-                next_state=tfgnn.keras.layers.NextStateFromConcat(tf.keras.layers.Dense(256, use_bias=False))
+                {"bond": tfgnn.keras.layers.Pool(tag=tfgnn.SOURCE, reduce_type="prod|sum")},
+                next_state=tfgnn.keras.layers.ResidualNextState(
+                    residual_block=node_updating()
+                )
             )}
         )(graph)
 
-        # Edge Updating
-        edge_message = tfgnn.keras.layers.GraphUpdate(
-                edge_sets={"bond": tfgnn.keras.layers.EdgeSetUpdate(
-                    next_state=tfgnn.keras.layers.NextStateFromConcat(
-                        transformation=edge_updating()
-                )
-            )}
-        )(node_message)
-        
-        #edge_message = tf.keras.layers.Add()([graph.edge_sets["bond"].__getitem__(tfgnn.HIDDEN_STATE), edge_message.edge_sets["bond"].__getitem__(tfgnn.HIDDEN_STATE)])
-        edge_message = tfgnn.combine_values([graph.edge_sets["bond"].__getitem__(tfgnn.HIDDEN_STATE), 
-                                            edge_message.edge_sets["bond"].__getitem__(tfgnn.HIDDEN_STATE)], combine_type="sum")
-
-        graph_message = tf.keras.layers.Multiply()([node_message.node_sets["atom"].__getitem__(tfgnn.HIDDEN_STATE), edge_message])
-
-        graph_message = tfgnn.pool_neighbors_to_node(graph_message, edge_set_name="bond", to_tag=tfgnn.SOURCE, reduce_type="sum", feature_name=tfgnn.HIDDEN_STATE)
-
-        graph_message = tfgnn.keras.layers.GraphUpdate(
-            node_sets={"atom": tfgnn.keras.layers.NodeSetUpdate(
-                {"bond": tfgnn.keras.layers.SimpleConv(tf.keras.layers.Dense(256), "mean")},
-                next_state=node_updating())
-            }
-        )(graph_message)
-
-        graph = tf.keras.layers.Add()([graph, graph_message])
-
-    readout_features = tfgnn.keras.layers.Pool(
-        tfgnn.NODES, "mean", node_set_name="atom")(graph)
-    readout_features = tfgnn.keras.layers.StructuredReadout("_readout/shift")(readout_features)
+    readout_features = tfgnn.keras.layers.StructuredReadout("shift")(graph)
     logits = tf.keras.layers.Dense(256, activation="softplus")(readout_features)
     logits = tf.keras.layers.Dense(256, activation="softplus")(logits)
     logits = tf.keras.layers.Dense(128, activation="softplus")(logits)
@@ -128,4 +112,4 @@ def build_model():
 
 if __name__ == "__main__":
     model = build_model()
-    print(model)
+    model.summary()
