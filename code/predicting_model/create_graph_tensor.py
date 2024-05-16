@@ -42,7 +42,7 @@ def findEmbedding(mol):
 def processData(filepath):
     file = open(filepath, 'r')
     text = file.read()
-    samples = text.split('/n/n')
+    samples = text.split('\n\n')
     mol_id = 0
 
     mol_dict = {"mol_id":[], "smiles":[], "n_atoms":[], "n_bonds":[], "n_pro":[]}
@@ -50,7 +50,7 @@ def processData(filepath):
     bond_dict = {"mol_id":[], "bond_type":[], "distance":[], "source":[], "target":[]}
 
     for sample in tqdm(samples):
-        sampleSplit = sample.split("/n")
+        sampleSplit = sample.split("\n")
         if sampleSplit == ['']:
             continue
 
@@ -82,10 +82,10 @@ def processData(filepath):
     
             for n, atom in enumerate(mol.GetAtoms()):
                 atom_dict["mol_id"].append(mol_id)
-                atom_num = atom.GetAtomicNum()
-                atom_dict["atom_num"].append(atom_num)
+                atom_type = atom.GetSymbol()
+                atom_dict["atom_num"].append(atom_type)
                 
-                if (atom_num == 1):
+                if (atom_type == "H"):
                     atomSplit = sampleSplit[3+iter_H].split(",")
                     atom_dict["Shift"].append(atomSplit[1])
 
@@ -119,8 +119,7 @@ def processData(filepath):
 
 
 def create_graph_tensor(mol_data, atom_data, bond_data):
-    H_indices = atom_data.index[atom_data["atom_num"] == 1].tolist()
-
+    H_indices = atom_data.index[atom_data["atom_num"] == "H"].tolist()
     graph_tensor = tfgnn.GraphTensor.from_pieces(
 
         context = tfgnn.Context.from_fields(features = {"smiles": mol_data["smiles"]}),
@@ -132,7 +131,7 @@ def create_graph_tensor(mol_data, atom_data, bond_data):
             ),
             "_readout": tfgnn.NodeSet.from_fields(
                 sizes = mol_data["n_pro"],
-                features = {"shift": atom_data["Shift"][H_indices]}
+                features = {"shift": atom_data["Shift"]}
             )
         },
 
@@ -165,9 +164,6 @@ if __name__ == "__main__":
     mol_df = pd.read_csv("code/predicting_model/Shift/DFTNN/own_data_mol.csv.gz", index_col=0)
     atom_df = pd.read_csv("code/predicting_model/Shift/DFTNN/own_data_atom.csv.gz", index_col=0)
     bond_df = pd.read_csv("code/predicting_model/Shift/DFTNN/own_data_bond.csv.gz", index_col=0)
-    
-    graph_schema = tfgnn.read_schema("code/predicting_model/GraphSchema.pbtxt")
-    graph_tensor_spec = tfgnn.create_graph_spec_from_schema_pb(graph_schema)
 
     with tf.io.TFRecordWriter("data/own_data/shift_graph.tfrecords") as writer:
         for mol_id in tqdm(mol_df["mol_id"]):

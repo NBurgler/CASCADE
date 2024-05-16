@@ -27,6 +27,18 @@ def node_sets_fn(node_set, *, node_set_name):
     features = node_set.get_features_dict()
 
     if node_set_name == "atom":
+        atom_type = features.pop("atom_num")
+        if atom_type == "H":
+            index = 0
+        elif atom_type == "C":
+            index = 1
+        elif atom_type == "O":
+            index = 2
+        elif atom_type == "N":
+            index = 3
+
+        one_hot = tf.one_hot(index, 4)
+        features["atom_num"] = one_hot
         #atom_embedding = tf.keras.layers.Embedding(256) #Embedding on entire table of elements or just the organic atoms?
         return features
     
