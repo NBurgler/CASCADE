@@ -22,27 +22,6 @@ wandb.init(
 )
 
 sys.path.append('code/predicting_model')
-
-def node_sets_fn(node_set, *, node_set_name):
-    features = node_set.get_features_dict()
-
-    if node_set_name == "atom":
-        atom_type = features.pop("atom_num")
-        if atom_type == "H":
-            index = 0
-        elif atom_type == "C":
-            index = 1
-        elif atom_type == "O":
-            index = 2
-        elif atom_type == "N":
-            index = 3
-
-        one_hot = tf.one_hot(index, 4)
-        features["atom_num"] = one_hot
-        #atom_embedding = tf.keras.layers.Embedding(256) #Embedding on entire table of elements or just the organic atoms?
-        return features
-    
-    return features
     
 def rbf_expansion(distances, mu=0, delta=0.1, kmax=256):
     k = np.arange(0, kmax)
@@ -61,17 +40,36 @@ def edge_sets_fn(edge_set, *, edge_set_name):
 
 def set_initial_node_state(node_set, *, node_set_name):
     # Since we only have one node set, we can ignore node_set_name.
+    features = node_set.get_features_dict()
+
     if node_set_name == "atom":
-        return tf.keras.layers.Embedding(35, 256)(node_set["atom_num"])
+        atom_type = features.pop("atom_symbol")
+        print(atom_type)
+        if atom_type == "H":
+            index = 0
+        elif atom_type == "C":
+            index = 1
+        elif atom_type == "O":
+            index = 2
+        elif atom_type == "N":
+            index = 3
+
+        one_hot = tf.one_hot(index, 4)
+        features["atom_num"] = one_hot
+        return tf.keras.layers.Embedding(4, 256)(node_set["atom_num"])
+    
     return
 
 def set_initial_edge_state(edge_set, *, edge_set_name):
     features = edge_set.get_features_dict()
 
-    '''if edge_set_name == "bond":
+    if edge_set_name == "bond":
         distances = features.pop('distance')
-        features['rbf_distance'] = rbf_expansion(distances)'''
-    return tf.keras.layers.Embedding(3, 256)(edge_set["bond_type"])
+        features['rbf_distance'] = rbf_expansion(distances)
+        return tf.keras.layers.Embedding(3, 256)(edge_set["bond_type"])
+    
+    return
+    
 
 def edge_updating():
     return tf.keras.Sequential([
@@ -158,11 +156,6 @@ if __name__ == "__main__":
     test_ds = dataset.skip(train_size)
     valid_ds = test_ds.take(valid_size)
     test_ds = test_ds.skip(test_size)
-    
-    x, y = train_ds.take(1).get_single_element()
-    print(x.node_sets["atom"])
-    print("-------------")
-    print(y)
 
     model = build_model(preproc_input_spec)
     model.compile(optimizer=tf.keras.optimizers.Adam(lr=lr), loss='mae')

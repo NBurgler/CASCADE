@@ -6,7 +6,7 @@ node_sets {
         features: {
             key: "atom_num"
             value: {
-                description: "The atom number."
+                description: "The atom number encoded as a one-hot."
                 dtype: DT_INT64
             }
         }
