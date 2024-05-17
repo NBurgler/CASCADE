@@ -119,7 +119,7 @@ def processData(filepath):
 
 
 def one_hot_encode_atoms(atom_symbols):
-    atom_nums = {"atom_num": []}
+    indices = np.empty(0, dtype=int)
     for symbol in atom_symbols:
         if symbol == "H":
             index = 0
@@ -129,15 +129,13 @@ def one_hot_encode_atoms(atom_symbols):
             index = 2
         elif symbol == "N":
             index = 3
-        atom_nums.append(tf.one_hot(index, 4))
-    return atom_nums
+        indices = np.append(indices, index)
+
+    return tf.one_hot(tf.convert_to_tensor(indices), 4)
 
 def create_graph_tensor(mol_data, atom_data, bond_data):
     H_indices = atom_data.index[atom_data["atom_symbol"] == "H"].tolist()
-    print(atom_data[0:10])
-    atom_data = atom_data.insert(one_hot_encode_atoms(atom_data["atom_symbol"]))
-    atom_data = atom_data.drop("atom_symbol")
-    print(atom_data[0:10])
+    atom_nums = one_hot_encode_atoms(atom_data["atom_symbol"])
 
     graph_tensor = tfgnn.GraphTensor.from_pieces(
 
@@ -146,7 +144,7 @@ def create_graph_tensor(mol_data, atom_data, bond_data):
         node_sets = {
             "atom": tfgnn.NodeSet.from_fields(
                 sizes = mol_data["n_atoms"],
-                features = {"atom_num": atom_data["atom_num"]}
+                features = {"atom_num": atom_nums}
             ),
             "_readout": tfgnn.NodeSet.from_fields(
                 sizes = mol_data["n_pro"],
