@@ -46,7 +46,7 @@ def processData(filepath):
     mol_id = 0
 
     mol_dict = {"mol_id":[], "smiles":[], "n_atoms":[], "n_bonds":[], "n_pro":[]}
-    atom_dict = {"mol_id":[], "atom_num":[], "Shift":[]}
+    atom_dict = {"mol_id":[], "atom_symbol":[], "Shift":[]}
     bond_dict = {"mol_id":[], "bond_type":[], "distance":[], "source":[], "target":[]}
 
     for sample in tqdm(samples):
@@ -82,10 +82,10 @@ def processData(filepath):
     
             for n, atom in enumerate(mol.GetAtoms()):
                 atom_dict["mol_id"].append(mol_id)
-                atom_type = atom.GetSymbol()
-                atom_dict["atom_num"].append(atom_type)
+                atom_symbol = atom.GetSymbol()
+                atom_dict["atom_symbol"].append(atom_symbol)
                 
-                if (atom_type == "H"):
+                if (atom_symbol == "H"):
                     atomSplit = sampleSplit[3+iter_H].split(",")
                     atom_dict["Shift"].append(atomSplit[1])
 
@@ -118,8 +118,27 @@ def processData(filepath):
     bond_df.to_csv("code/predicting_model/Shift/DFTNN/own_data_bond.csv.gz", compression='gzip')
 
 
+def one_hot_encode_atoms(atom_symbols):
+    atom_nums = {"atom_num": []}
+    for symbol in atom_symbols:
+        if symbol == "H":
+            index = 0
+        elif symbol == "C":
+            index = 1
+        elif symbol == "O":
+            index = 2
+        elif symbol == "N":
+            index = 3
+        atom_nums.append(tf.one_hot(index, 4))
+    return atom_nums
+
 def create_graph_tensor(mol_data, atom_data, bond_data):
-    H_indices = atom_data.index[atom_data["atom_num"] == "H"].tolist()
+    H_indices = atom_data.index[atom_data["atom_symbol"] == "H"].tolist()
+    print(atom_data[0:10])
+    atom_data = atom_data.insert(one_hot_encode_atoms(atom_data["atom_symbol"]))
+    atom_data = atom_data.drop("atom_symbol")
+    print(atom_data[0:10])
+
     graph_tensor = tfgnn.GraphTensor.from_pieces(
 
         context = tfgnn.Context.from_fields(features = {"smiles": mol_data["smiles"]}),
