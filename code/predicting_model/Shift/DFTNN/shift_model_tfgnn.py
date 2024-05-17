@@ -39,26 +39,9 @@ def edge_sets_fn(edge_set, *, edge_set_name):
     return features
 
 def set_initial_node_state(node_set, *, node_set_name):
-    # Since we only have one node set, we can ignore node_set_name.
-    features = node_set.get_features_dict()
-
-    if node_set_name == "atom":
-        atom_type = features.pop("atom_symbol")
-        print(atom_type)
-        if atom_type == "H":
-            index = 0
-        elif atom_type == "C":
-            index = 1
-        elif atom_type == "O":
-            index = 2
-        elif atom_type == "N":
-            index = 3
-
-        one_hot = tf.one_hot(index, 4)
-        features["atom_num"] = one_hot
-        return tf.keras.layers.Embedding(4, 256)(node_set["atom_num"])
-    
-    return
+    '''if node_set_name == "atom":
+        return tf.keras.layers.Embedding(4, 256)(node_set["atom_num"])'''
+    return tf.keras.layers.Dense(256)(node_set["atom_num"])
 
 def set_initial_edge_state(edge_set, *, edge_set_name):
     features = edge_set.get_features_dict()
@@ -66,9 +49,8 @@ def set_initial_edge_state(edge_set, *, edge_set_name):
     if edge_set_name == "bond":
         distances = features.pop('distance')
         features['rbf_distance'] = rbf_expansion(distances)
-        return tf.keras.layers.Embedding(3, 256)(edge_set["bond_type"])
     
-    return
+    return tf.keras.layers.Dense(256)(tf.expand_dims(tf.keras.layers.Concatenate()([edge_set["bond_type"], edge_set["rbf_distance"]]), axis=1))
     
 
 def edge_updating():
@@ -88,7 +70,7 @@ def build_model(preproc_input_spec):
     #preprocessing layers
     preproc_input = tf.keras.layers.Input(type_spec=preproc_input_spec)
 
-    graph = preproc_input.merge_batch_to_components() #might need this
+    graph = preproc_input.merge_batch_to_components()
 
     graph = tfgnn.keras.layers.MapFeatures(node_sets_fn=set_initial_node_state, edge_sets_fn=set_initial_edge_state)(graph)
     #TODO: no rbf expansion currently
@@ -118,6 +100,7 @@ def build_model(preproc_input_spec):
     logits = tf.keras.layers.Dense(256, activation="softplus")(logits)
     logits = tf.keras.layers.Dense(128, activation="softplus")(logits)
     output = tf.keras.layers.Dense(1, activation="softplus")(logits)
+    
 
     return tf.keras.Model(inputs=[preproc_input], outputs=[output])
 
@@ -157,8 +140,10 @@ if __name__ == "__main__":
     valid_ds = test_ds.take(valid_size)
     test_ds = test_ds.skip(test_size)
 
+    x, y = train_ds.take(1).get_single_element()
+
     model = build_model(preproc_input_spec)
-    model.compile(optimizer=tf.keras.optimizers.Adam(lr=lr), loss='mae')
+    model.compile(optimizer=tf.keras.optimizers.Adam(learning_rate=lr), loss='mae')
     model.summary()
 
     checkpoint = tf.keras.callbacks.ModelCheckpoint(path, save_best_only=True, period=1, verbose=1)

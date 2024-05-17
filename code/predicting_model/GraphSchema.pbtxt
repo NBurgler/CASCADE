@@ -7,7 +7,8 @@ node_sets {
             key: "atom_num"
             value: {
                 description: "The atom number encoded as a one-hot."
-                dtype: DT_INT64
+                dtype: DT_FLOAT
+                shape: { dim { size: 4 } }
             }
         }
     }
@@ -39,13 +40,20 @@ edge_sets {
             key: "bond_type"
             value: {
                 description: "The type of bond (single, double, etc.)."
-                dtype: DT_INT64
+                dtype: DT_FLOAT
             }
         }
         features: {
             key: "distance"
             value: {
                 description: "The interatomic distance."
+                dtype: DT_FLOAT
+            }
+        }
+        features: {
+            key: "rbf_distance"
+            value: {
+                description: "The rbf distance."
                 dtype: DT_FLOAT
             }
         }
