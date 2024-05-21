@@ -7,6 +7,7 @@ import pandas as pd
 import pickle
 import sys
 import functools
+import matplotlib.pyplot as plt
 
 import wandb
 from wandb.keras import WandbCallback
@@ -102,7 +103,6 @@ def build_model(preproc_input_spec):
     logits = tf.keras.layers.Dense(128, activation="softplus")(logits)
     output = tf.keras.layers.Dense(1, activation="softplus")(logits)
     
-
     return tf.keras.Model(inputs=[preproc_input], outputs=[output])
 
 def decode_fn(record_bytes):
@@ -124,7 +124,7 @@ if __name__ == "__main__":
     epoch_divisor = 1
 
     dataset = tf.data.TFRecordDataset(filenames=["data/own_data/shift_graph.tfrecords"])
-    
+
     dataset = dataset.batch(batch_size)
 
     graph_schema = tfgnn.read_schema("code/predicting_model/GraphSchema.pbtxt")
@@ -142,8 +142,23 @@ if __name__ == "__main__":
     valid_ds = test_ds.take(valid_size)
     test_ds = test_ds.skip(test_size)
 
+    learning_rate = tf.keras.optimizers.schedules.ExponentialDecay(
+        initial_learning_rate, 70, 0.96
+    )
+    loss = tf.keras.losses.MeanAbsoluteError()
+    metrics = tf.keras.metrics.MeanAbsoluteError()
 
-    task = runner.NodeMeanAbsoluteError("shift")
+    model = build_model(preproc_input_spec)
+    model.compile(optimizer=tf.keras.optimizers.Adam(learning_rate=learning_rate), loss=loss, metrics=metrics)
+    model.summary()
+
+    history = model.fit(train_ds,
+                        steps_per_epoch=10,
+                        epochs=epochs,
+                        validation_data=valid_ds,
+                        callbacks=WandbCallback())
+
+    '''task = runner.NodeMeanAbsoluteError("shift", label_feature_name="shift")
     steps_per_epoch = train_size // batch_size // epoch_divisor
     validation_steps = valid_size // batch_size // epoch_divisor
     learning_rate = tf.keras.optimizers.schedules.ExponentialDecay(
@@ -152,8 +167,8 @@ if __name__ == "__main__":
     optimizer_fn = functools.partial(tf.keras.optimizers.Adam, learning_rate=learning_rate)
 
     trainer = runner.KerasTrainer(
-        strategy=strategy,
-        model_dir="/tmp/gnn_model/"
+        strategy=tf.distribute.MirroredStrategy(),
+        model_dir="/tmp/gnn_model/",
         callbacks=WandbCallback(),
         steps_per_epoch=steps_per_epoch,
         validation_steps=validation_steps,
@@ -162,3 +177,17 @@ if __name__ == "__main__":
         summarize_every_n_steps="never",
         backup_and_restore=False,
     )
+
+    runner.run(
+        gtspec=graph_tensor_spec,
+        train_ds_provider=train_ds,
+        valid_ds_provider=valid_ds,
+        model_fn=model_fn(graph_tensor_spec),
+        optimizer_fn=optimizer_fn,
+        trainer=trainer,
+        task=task,
+        global_batch_size=batch_size,
+        epochs=epochs,
+    )
+
+    model_exporter = runner.KerasModelExporter(output_names="shifts")'''
