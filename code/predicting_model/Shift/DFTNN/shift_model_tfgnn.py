@@ -2,10 +2,11 @@ import os
 import numpy as np
 import tensorflow as tf
 import tensorflow_gnn as tfgnn
+from tensorflow_gnn import runner
 import pandas as pd
 import pickle
 import sys
-import gnn_layers
+import functools
 
 import wandb
 from wandb.keras import WandbCallback
@@ -118,8 +119,9 @@ def decode_fn(record_bytes):
 if __name__ == "__main__":
     path = "/home/s3665828/Documents/Masters_Thesis/repo/CASCADE/code/predicting_model/Shift/DFTNN/"
     batch_size = 5
-    lr = 5E-4
+    initial_learning_rate = 5E-4
     epochs = 10
+    epoch_divisor = 1
 
     dataset = tf.data.TFRecordDataset(filenames=["data/own_data/shift_graph.tfrecords"])
     
@@ -140,25 +142,23 @@ if __name__ == "__main__":
     valid_ds = test_ds.take(valid_size)
     test_ds = test_ds.skip(test_size)
 
-    x, y = train_ds.take(1).get_single_element()
 
-    model = build_model(preproc_input_spec)
-    model.compile(optimizer=tf.keras.optimizers.Adam(learning_rate=lr), loss='mae')
-    model.summary()
+    task = runner.NodeMeanAbsoluteError("shift")
+    steps_per_epoch = train_size // batch_size // epoch_divisor
+    validation_steps = valid_size // batch_size // epoch_divisor
+    learning_rate = tf.keras.optimizers.schedules.ExponentialDecay(
+        initial_learning_rate, 70, 0.96
+    )
+    optimizer_fn = functools.partial(tf.keras.optimizers.Adam, learning_rate=learning_rate)
 
-    checkpoint = tf.keras.callbacks.ModelCheckpoint(path, save_best_only=True, period=1, verbose=1)
-    csv_logger = tf.keras.callbacks.CSVLogger('own_log.csv')
-
-    def decay_fn(epoch, learning_rate):
-        """ Jorgensen decays to 0.96*lr every 100,000 batches, which is approx
-        every 28 epochs """
-        if (epoch % 70) == 0:
-            return 0.96 * learning_rate
-        else:
-            return learning_rate
-        
-    lr_decay = tf.keras.callbacks.LearningRateScheduler(decay_fn)
-
-    hist = model.fit(train_ds, validation_data=valid_ds,
-                    epochs=epochs, verbose=1, 
-                    callbacks=[checkpoint, csv_logger, lr_decay, WandbCallback()])
+    trainer = runner.KerasTrainer(
+        strategy=strategy,
+        model_dir="/tmp/gnn_model/"
+        callbacks=WandbCallback(),
+        steps_per_epoch=steps_per_epoch,
+        validation_steps=validation_steps,
+        restore_best_weights=False,
+        checkpoint_every_n_steps="never",
+        summarize_every_n_steps="never",
+        backup_and_restore=False,
+    )
