@@ -12,7 +12,7 @@ import matplotlib.pyplot as plt
 import wandb
 from wandb.keras import WandbCallback
 
-wandb.init(
+'''wandb.init(
         project="nmr-prediction",
         dir="/home/s3665828/Documents/Masters_Thesis/repo/CASCADE/code/predicting_model/H/DFTNN",
         config={
@@ -21,7 +21,7 @@ wandb.init(
         "epochs": 10,
         "setting": "tfgnn",
     }
-)
+)'''
 
 sys.path.append('code/predicting_model')
     
@@ -68,7 +68,7 @@ def node_updating():
         tf.keras.layers.Dense(256)])
 
 
-def build_model(preproc_input_spec):
+def model_fn(preproc_input_spec):
     #preprocessing layers
     preproc_input = tf.keras.layers.Input(type_spec=preproc_input_spec)
 
@@ -106,14 +106,15 @@ def build_model(preproc_input_spec):
     return tf.keras.Model(inputs=[preproc_input], outputs=[output])
 
 def decode_fn(record_bytes):
-  graph = tfgnn.parse_example(
-      graph_tensor_spec, record_bytes, validate=True)
+    graph = tfgnn.parse_example(
+        graph_tensor_spec, record_bytes, validate=True)
 
-  # extract label from node and remove from input graph
-  node_features = graph.node_sets["_readout"].get_features_dict()
-  label = node_features.pop('shift')
+    # extract label from node and remove from input graph
+    label = tfgnn.keras.layers.Readout(node_set_name="_readout",
+                                        feature_name="shift")(graph)
+    graph = graph.remove_features(node_sets={"_readout": ["shift"]})
 
-  return graph, label
+    return graph, label
 
 
 if __name__ == "__main__":
@@ -123,21 +124,23 @@ if __name__ == "__main__":
     epochs = 10
     epoch_divisor = 1
 
-    dataset = tf.data.TFRecordDataset(filenames=["data/own_data/shift_graph.tfrecords"])
+    train_ds_provider = runner.TFRecordDatasetProvider(filenames=["data/own_data/shift_train.tfrecords"])
+    test_ds_provider = runner.TFRecordDatasetProvider(filenames=["data/own_data/shift_test.tfrecords"])
+    valid_ds_provider = runner.TFRecordDatasetProvider(filenames=["data/own_data/shift_valid.tfrecords"])
 
-    dataset = dataset.batch(batch_size)
+    #dataset = dataset.batch(batch_size)
 
     graph_schema = tfgnn.read_schema("code/predicting_model/GraphSchema.pbtxt")
     graph_tensor_spec = tfgnn.create_graph_spec_from_schema_pb(graph_schema)
-    dataset = dataset.map(decode_fn)
-    preproc_input_spec, label_spec = dataset.element_spec
-
-    dataset = dataset.shuffle(buffer_size=10)
+    #dataset = dataset.map(decode_fn)
+    #preproc_input_spec, label_spec = dataset.element_spec
+    
+    #dataset = dataset.shuffle(buffer_size=10)
     train_size = 70
     valid_size = 15
     test_size = 15
 
-    train_ds = dataset.take(train_size)
+    '''train_ds = dataset.take(train_size)
     test_ds = dataset.skip(train_size)
     valid_ds = test_ds.take(valid_size)
     test_ds = test_ds.skip(test_size)
@@ -149,16 +152,15 @@ if __name__ == "__main__":
     metrics = tf.keras.metrics.MeanAbsoluteError()
 
     model = build_model(preproc_input_spec)
-    model.compile(optimizer=tf.keras.optimizers.Adam(learning_rate=learning_rate), loss=loss, metrics=metrics)
+    model.compile(tf.keras.optimizers.Adam(learning_rate=learning_rate), loss=loss, metrics=metrics)
     model.summary()
 
     history = model.fit(train_ds,
                         steps_per_epoch=10,
                         epochs=epochs,
-                        validation_data=valid_ds,
-                        callbacks=WandbCallback())
+                        validation_data=valid_ds)'''
 
-    '''task = runner.NodeMeanAbsoluteError("shift", label_feature_name="shift")
+    task = runner.NodeMeanAbsoluteError("shift", label_feature_name="shift")
     steps_per_epoch = train_size // batch_size // epoch_divisor
     validation_steps = valid_size // batch_size // epoch_divisor
     learning_rate = tf.keras.optimizers.schedules.ExponentialDecay(
@@ -169,7 +171,7 @@ if __name__ == "__main__":
     trainer = runner.KerasTrainer(
         strategy=tf.distribute.MirroredStrategy(),
         model_dir="/tmp/gnn_model/",
-        callbacks=WandbCallback(),
+        #callbacks=WandbCallback(),
         steps_per_epoch=steps_per_epoch,
         validation_steps=validation_steps,
         restore_best_weights=False,
@@ -180,8 +182,8 @@ if __name__ == "__main__":
 
     runner.run(
         gtspec=graph_tensor_spec,
-        train_ds_provider=train_ds,
-        valid_ds_provider=valid_ds,
+        train_ds_provider=train_ds_provider,
+        valid_ds_provider=valid_ds_provider,
         model_fn=model_fn(graph_tensor_spec),
         optimizer_fn=optimizer_fn,
         trainer=trainer,
@@ -190,4 +192,4 @@ if __name__ == "__main__":
         epochs=epochs,
     )
 
-    model_exporter = runner.KerasModelExporter(output_names="shifts")'''
+    model_exporter = runner.KerasModelExporter(output_names="shifts")

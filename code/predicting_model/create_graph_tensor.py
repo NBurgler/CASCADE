@@ -148,7 +148,7 @@ def create_graph_tensor(mol_data, atom_data, bond_data):
             ),
             "_readout": tfgnn.NodeSet.from_fields(
                 sizes = mol_data["n_pro"],
-                features = {"shift": atom_data["Shift"]}
+                features = {"shift": atom_data["Shift"][H_indices]}
             )
         },
 
@@ -182,18 +182,31 @@ if __name__ == "__main__":
     atom_df = pd.read_csv("code/predicting_model/Shift/DFTNN/own_data_atom.csv.gz", index_col=0)
     bond_df = pd.read_csv("code/predicting_model/Shift/DFTNN/own_data_bond.csv.gz", index_col=0)
 
-    with tf.io.TFRecordWriter("data/own_data/shift_graph.tfrecords") as writer:
-        for mol_id in tqdm(mol_df["mol_id"]):
-            mol_data = mol_df.loc[mol_df["mol_id"] == mol_id]
-            atom_data = atom_df.loc[atom_df["mol_id"] == mol_id]
-            bond_data = bond_df.loc[bond_df["mol_id"] == mol_id]
+    mol_df = mol_df.sample(frac=1)  #shuffle
 
-            if (mol_data['n_pro'].values == 0):
-                continue
+    train_data = tf.io.TFRecordWriter("data/own_data/shift_train.tfrecords")
+    test_data = tf.io.TFRecordWriter("data/own_data/shift_test.tfrecords")
+    valid_data = tf.io.TFRecordWriter("data/own_data/shift_valid.tfrecords")
+
+    total = len(mol_df)
+
+    for idx, mol_id in tqdm(enumerate(mol_df["mol_id"])):
+        mol_data = mol_df.loc[mol_df["mol_id"] == mol_id]
+        atom_data = atom_df.loc[atom_df["mol_id"] == mol_id]
+        bond_data = bond_df.loc[bond_df["mol_id"] == mol_id]
+
+        if (mol_data['n_pro'].values == 0):
+            continue
+        
+        # make sure the index resets to 0 instead of continuing from the previous molecule
+        atom_data = atom_data.reset_index(drop=True)
             
-            # make sure the index resets to 0 instead of continuing from the previous molecule
-            atom_data = atom_data.reset_index(drop=True)
-             
-            graph_tensor = create_graph_tensor(mol_data, atom_data, bond_data)
-            example = tfgnn.write_example(graph_tensor)
-            writer.write(example.SerializeToString())
+        graph_tensor = create_graph_tensor(mol_data, atom_data, bond_data)
+        example = tfgnn.write_example(graph_tensor)
+
+        if idx < total*0.7:
+            train_data.write(example.SerializeToString())
+        elif idx < total*0.85:
+            valid_data.write(example.SerializeToString())
+        else:
+            test_data.write(example.SerializeToString())
