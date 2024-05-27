@@ -8,6 +8,7 @@ import pickle
 import sys
 import functools
 import matplotlib.pyplot as plt
+import datetime
 
 import wandb
 from wandb.keras import WandbCallback
@@ -67,12 +68,19 @@ def node_updating():
         tf.keras.layers.Dense(256, activation="softplus"),
         tf.keras.layers.Dense(256)])
 
+def readout_layers():
+    return tf.keras.Sequential([
+        tf.keras.layers.Dense(256, activation="softplus"),
+        tf.keras.layers.Dense(256, activation="softplus"),
+        tf.keras.layers.Dense(128, activation="softplus"),
+        tf.keras.layers.Dense(1)])
 
-def model_fn(preproc_input_spec):
+
+def model_fn(graph_tensor_spec: tfgnn.GraphTensorSpec):
     #preprocessing layers
-    preproc_input = tf.keras.layers.Input(type_spec=preproc_input_spec)
+    graph = inputs = tf.keras.layers.Input(type_spec=graph_tensor_spec)
 
-    graph = preproc_input.merge_batch_to_components()
+    #graph = preproc_input.merge_batch_to_components()
 
     graph = tfgnn.keras.layers.MapFeatures(node_sets_fn=set_initial_node_state, edge_sets_fn=set_initial_edge_state)(graph)
     #TODO: no rbf expansion currently
@@ -97,21 +105,30 @@ def model_fn(preproc_input_spec):
             )}
         )(graph)
 
-    readout_features = tfgnn.keras.layers.StructuredReadout("shift")(graph)
+    #readout layers
+    output = tfgnn.keras.layers.GraphUpdate(
+        node_sets={"atom": tfgnn.keras.layers.NodeSetUpdate(
+            {"bond": tfgnn.keras.layers.Pool(tag=tfgnn.SOURCE, reduce_type="sum")},
+            next_state=tfgnn.keras.layers.NextStateFromConcat(
+                transformation=readout_layers()
+            )
+        )}
+    )(graph)
+
+    '''readout_features = tfgnn.keras.layers.StructuredReadout("shift")(graph)
     logits = tf.keras.layers.Dense(256, activation="softplus")(readout_features)
     logits = tf.keras.layers.Dense(256, activation="softplus")(logits)
     logits = tf.keras.layers.Dense(128, activation="softplus")(logits)
-    output = tf.keras.layers.Dense(1, activation="softplus")(logits)
+    output = tf.keras.layers.Dense(1)(logits)'''
     
-    return tf.keras.Model(inputs=[preproc_input], outputs=[output])
+    return tf.keras.Model(inputs=[inputs], outputs=[output])
 
 def decode_fn(record_bytes):
     graph = tfgnn.parse_example(
         graph_tensor_spec, record_bytes, validate=True)
 
     # extract label from node and remove from input graph
-    label = tfgnn.keras.layers.Readout(node_set_name="_readout",
-                                        feature_name="shift")(graph)
+    label = tfgnn.keras.layers.StructuredReadout("shift")(graph)
     graph = graph.remove_features(node_sets={"_readout": ["shift"]})
 
     return graph, label
@@ -119,26 +136,21 @@ def decode_fn(record_bytes):
 
 if __name__ == "__main__":
     path = "/home/s3665828/Documents/Masters_Thesis/repo/CASCADE/code/predicting_model/Shift/DFTNN/"
-    batch_size = 5
+    batch_size = 32
     initial_learning_rate = 5E-4
-    epochs = 10
+    epochs = 1200
     epoch_divisor = 1
 
     train_ds_provider = runner.TFRecordDatasetProvider(filenames=["data/own_data/shift_train.tfrecords"])
     test_ds_provider = runner.TFRecordDatasetProvider(filenames=["data/own_data/shift_test.tfrecords"])
     valid_ds_provider = runner.TFRecordDatasetProvider(filenames=["data/own_data/shift_valid.tfrecords"])
 
-    #dataset = dataset.batch(batch_size)
-
     graph_schema = tfgnn.read_schema("code/predicting_model/GraphSchema.pbtxt")
     graph_tensor_spec = tfgnn.create_graph_spec_from_schema_pb(graph_schema)
-    #dataset = dataset.map(decode_fn)
-    #preproc_input_spec, label_spec = dataset.element_spec
-    
-    #dataset = dataset.shuffle(buffer_size=10)
-    train_size = 70
-    valid_size = 15
-    test_size = 15
+
+    train_size = 63565
+    valid_size = 13622
+    test_size = 13622
 
     '''train_ds = dataset.take(train_size)
     test_ds = dataset.skip(train_size)
@@ -168,10 +180,15 @@ if __name__ == "__main__":
     )
     optimizer_fn = functools.partial(tf.keras.optimizers.Adam, learning_rate=learning_rate)
 
+    filepath = path + "gnn/models/"
+    log_dir = path + "logs/fit/" + datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
+    tensorboard_callback = tf.keras.callbacks.TensorBoard(log_dir=log_dir, histogram_freq=1)
+    checkpoint = tf.keras.callbacks.ModelCheckpoint(filepath, save_best_only=True, period=1, verbose=1)
+
     trainer = runner.KerasTrainer(
         strategy=tf.distribute.MirroredStrategy(),
         model_dir="/tmp/gnn_model/",
-        #callbacks=WandbCallback(),
+        callbacks=[tensorboard_callback, checkpoint],
         steps_per_epoch=steps_per_epoch,
         validation_steps=validation_steps,
         restore_best_weights=False,
@@ -180,16 +197,17 @@ if __name__ == "__main__":
         backup_and_restore=False,
     )
 
+    model_exporter = runner.KerasModelExporter(output_names="shifts")
+
     runner.run(
         gtspec=graph_tensor_spec,
         train_ds_provider=train_ds_provider,
         valid_ds_provider=valid_ds_provider,
-        model_fn=model_fn(graph_tensor_spec),
+        model_fn=model_fn,
         optimizer_fn=optimizer_fn,
         trainer=trainer,
         task=task,
         global_batch_size=batch_size,
         epochs=epochs,
+        model_exporters=[model_exporter]
     )
-
-    model_exporter = runner.KerasModelExporter(output_names="shifts")

@@ -189,6 +189,9 @@ if __name__ == "__main__":
     valid_data = tf.io.TFRecordWriter("data/own_data/shift_valid.tfrecords")
 
     total = len(mol_df)
+    '''print(len(mol_df))
+    print(len(mol_df)*0.70)
+    print(len(mol_df)*0.15)'''
 
     for idx, mol_id in tqdm(enumerate(mol_df["mol_id"])):
         mol_data = mol_df.loc[mol_df["mol_id"] == mol_id]
