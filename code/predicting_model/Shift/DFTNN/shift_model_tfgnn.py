@@ -152,26 +152,6 @@ if __name__ == "__main__":
     valid_size = 13622
     test_size = 13622
 
-    '''train_ds = dataset.take(train_size)
-    test_ds = dataset.skip(train_size)
-    valid_ds = test_ds.take(valid_size)
-    test_ds = test_ds.skip(test_size)
-
-    learning_rate = tf.keras.optimizers.schedules.ExponentialDecay(
-        initial_learning_rate, 70, 0.96
-    )
-    loss = tf.keras.losses.MeanAbsoluteError()
-    metrics = tf.keras.metrics.MeanAbsoluteError()
-
-    model = build_model(preproc_input_spec)
-    model.compile(tf.keras.optimizers.Adam(learning_rate=learning_rate), loss=loss, metrics=metrics)
-    model.summary()
-
-    history = model.fit(train_ds,
-                        steps_per_epoch=10,
-                        epochs=epochs,
-                        validation_data=valid_ds)'''
-
     task = runner.NodeMeanAbsoluteError("shift", label_feature_name="shift")
     steps_per_epoch = train_size // batch_size // epoch_divisor
     validation_steps = valid_size // batch_size // epoch_divisor
