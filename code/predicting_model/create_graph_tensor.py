@@ -153,7 +153,7 @@ def create_graph_tensor(mol_data, atom_data, bond_data):
         },
 
         edge_sets = {
-            "bonds": tfgnn.EdgeSet.from_fields(
+            "bond": tfgnn.EdgeSet.from_fields(
                 sizes = mol_data["n_bonds"],
                 adjacency = tfgnn.Adjacency.from_indices(
                     source = ("atom", bond_data["source"]),
