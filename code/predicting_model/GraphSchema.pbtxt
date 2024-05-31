@@ -11,6 +11,120 @@ node_sets {
                 shape: { dim { size: 4 } }
             }
         }
+
+        features: {
+            key: "chiral_tag"
+            value: {
+                description: "The atom's chiral tag, a one-hot with 9 possible values."
+                dtype: DT_FLOAT
+                shape: { dim { size: 9 } }
+            }
+        }
+
+        features: {
+            key: "degree"
+            value: {
+                description: "The atom's degree, an integer value."
+                dtype: DT_INT
+            }
+        }
+
+        features: {
+            key: "explicit_valence"
+            value: {
+                description: "The atom's explicit_valence, an integer value."
+                dtype: DT_INT
+            }
+        }
+        
+        features: {
+            key: "formal_charge"
+            value: {
+                description: "The atom's formal charge, an integer value."
+                dtype: DT_INT
+            }
+        }
+
+        features: {
+            key: "hybridization"
+            value: {
+                description: "The atom's hybridization type, a one-hot with 9 possible values."
+                dtype: DT_FLOAT
+                shape: { dim { size: 9 } }
+            }
+        }
+
+        features: {
+            key: "implicit_valence"
+            value: {
+                description: "The atom's implicit valence, an integer value."
+                dtype: DT_INT
+            }
+        }
+
+        features: {
+            key: "is_aromatic"
+            value: {
+                description: "0 if the atom is not aromatic, 1 if it is."
+                dtype: DT_INT
+            }
+        }
+
+        features: {
+            key: "no_implicit"
+            value: {
+                description: "0 if the atom is allowed to have implicit atoms, 1 if it isn't"
+                dtype: DT_INT
+            }
+        }
+
+        features: {
+            key: "num_explicit_Hs"
+            value: {
+                description: "The number of explicit hydrogens on the atom."
+                dtype: DT_INT
+            }
+        }
+
+        features: {
+            key: "num_implicit_Hs"
+            value: {
+                description: "The number of implicit hydrogens on the atom."
+                dtype: DT_INT
+            }
+        }
+
+        features: {
+            key: "num_radical_atoms"
+            value: {
+                description: "The number of radical atoms."
+                dtype: DT_INT
+            }
+        }
+
+        features: {
+            key: "total_degree"
+            value: {
+                description: "The degree of the atom including H-atoms."
+                dtype: DT_INT
+            }
+        }
+
+        features: {
+            key: "total_num_Hs"
+            value: {
+                description: "The totel number of hydrogen atoms on the atom."
+                dtype: DT_INT
+            }
+        }
+
+        features: {
+            key: "num_radical_atoms"
+            value: {
+                description: "The total (implicit and explicit) valence of the atom."
+                dtype: DT_INT
+            }
+        }
     }
 }
 
@@ -55,6 +169,23 @@ edge_sets {
             value: {
                 description: "The rbf distance."
                 dtype: DT_FLOAT
+            }
+        }
+
+        features: {
+            key: "is_conjugated"
+            value: {
+                description: "0 if the bond is not conjugated, 1 if it is."
+                dtype: DT_INT
+            }
+        }
+
+        features: {
+            key: "stereo"
+            value: {
+                description: "The stereo configuration of the bond as a one-hot."
+                dtype: DT_FLOAT
+                shape: { dim { size: 8 } }
             }
         }
     }

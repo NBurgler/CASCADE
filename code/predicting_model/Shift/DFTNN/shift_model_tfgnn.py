@@ -28,7 +28,7 @@ sys.path.append('code/predicting_model')
     
 def rbf_expansion(distances, mu=0, delta=0.1, kmax=256):
     k = np.arange(0, kmax)
-    logits = -(tf.expand_dims(distances, 1) - (-mu + delta * k))**2 / delta #Not sure if this is correct, but haven't found a way to check
+    logits = -(tf.expand_dims(distances, 1) - (-mu + delta * k))**2 / delta
     return tf.math.exp(logits)
     
 def edge_sets_fn(edge_set, *, edge_set_name):
@@ -83,7 +83,6 @@ def model_fn(graph_tensor_spec: tfgnn.GraphTensorSpec):
     #graph = preproc_input.merge_batch_to_components()
 
     graph = tfgnn.keras.layers.MapFeatures(node_sets_fn=set_initial_node_state, edge_sets_fn=set_initial_edge_state)(graph)
-    #TODO: no rbf expansion currently
 
     # Message passing layers
     # First, the edges are updated according to the layers in edge_updating
@@ -156,7 +155,7 @@ if __name__ == "__main__":
     steps_per_epoch = train_size // batch_size // epoch_divisor
     validation_steps = valid_size // batch_size // epoch_divisor
     learning_rate = tf.keras.optimizers.schedules.ExponentialDecay(
-        initial_learning_rate, 70, 0.96
+        initial_learning_rate, decay_steps=100000, decay_rate=0.96
     )
     optimizer_fn = functools.partial(tf.keras.optimizers.Adam, learning_rate=learning_rate)
 
