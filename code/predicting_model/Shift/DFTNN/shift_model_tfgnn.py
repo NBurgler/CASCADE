@@ -92,14 +92,14 @@ def model_fn(graph_tensor_spec: tfgnn.GraphTensorSpec):
     for _ in range(3):
         graph = tfgnn.keras.layers.GraphUpdate(
             edge_sets={"bond": tfgnn.keras.layers.EdgeSetUpdate(
-                    next_state=tfgnn.keras.layers.ResidualNextState(
-                        residual_block=edge_updating()
+                    next_state=tfgnn.keras.layers.NextStateFromConcat(
+                        transformation=edge_updating()
                 )
             )},
             node_sets={"atom": tfgnn.keras.layers.NodeSetUpdate(
                 {"bond": tfgnn.keras.layers.Pool(tag=tfgnn.SOURCE, reduce_type="prod|sum")},
-                next_state=tfgnn.keras.layers.ResidualNextState(
-                    residual_block=node_updating()
+                next_state=tfgnn.keras.layers.NextStateFromConcat(
+                    transformation=node_updating()
                 )
             )}
         )(graph)
@@ -155,7 +155,7 @@ if __name__ == "__main__":
     steps_per_epoch = train_size // batch_size // epoch_divisor
     validation_steps = valid_size // batch_size // epoch_divisor
     learning_rate = tf.keras.optimizers.schedules.ExponentialDecay(
-        initial_learning_rate, decay_steps=100000, decay_rate=0.96
+        initial_learning_rate, decay_steps=100000, decay_rate=0.96, staircase=True
     )
     optimizer_fn = functools.partial(tf.keras.optimizers.Adam, learning_rate=learning_rate)
 

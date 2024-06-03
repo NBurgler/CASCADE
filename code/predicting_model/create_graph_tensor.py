@@ -46,8 +46,12 @@ def processData(filepath):
     mol_id = 0
 
     mol_dict = {"mol_id":[], "smiles":[], "n_atoms":[], "n_bonds":[], "n_pro":[]}
-    atom_dict = {"mol_id":[], "atom_symbol":[], "Shift":[]}
-    bond_dict = {"mol_id":[], "bond_type":[], "distance":[], "source":[], "target":[]}
+    atom_dict = {"mol_id":[], "atom_symbol":[], "chiral_tag":[], "degree":[], "exp_valence":[], 
+                 "formal_charge":[], "hybridization":[], "imp_valence":[], "is_aromatic":[], 
+                 "no_implicit":[], "num_exp_H": [], "num_imp_H":[], "num_radical_electrons":[],
+                  "total_degree":[], "total_num_H":[], "total_valence":[], "Shift":[]}
+    bond_dict = {"mol_id":[], "bond_type":[], "distance":[], "is_conjugated":[], "stereo":[],
+                  "source":[], "target":[]}
 
     for sample in tqdm(samples):
         sampleSplit = sample.split("\n")
@@ -84,6 +88,17 @@ def processData(filepath):
                 atom_dict["mol_id"].append(mol_id)
                 atom_symbol = atom.GetSymbol()
                 atom_dict["atom_symbol"].append(atom_symbol)
+                atom_dict["chiral_tag"].append(atom.GetChiralTag())
+                atom_dict["degree"].append(atom.GetDegree())
+                atom_dict["exp_valence"].append(atom.GetExplicitValence())
+                atom_dict["formal_charge"].append(atom.GetFormalCharge())
+                atom_dict["hybridization"].append(atom.GetHybridization())
+                atom_dict["imp_valence"].append(atom.GetImplicitValence())
+                atom_dict["is_aromatic"].append(atom.GetIsAromatic())
+                atom_dict["no_implicit"].append(atom.GetNoImplicit())
+                atom_dict["num_exp_H"].append(atom.GetNumExplicitHs())
+                atom_dict["num_imp_H"].append(atom.GetNumImplicitHs())
+                atom_dict["num_radical_electrons"].append(atom.GetNumRadicalElectrons())
                 
                 if (atom_symbol == "H"):
                     atomSplit = sampleSplit[3+iter_H].split(",")
@@ -92,6 +107,10 @@ def processData(filepath):
                     iter_H += 1
                 else:
                     atom_dict["Shift"].append(0.0)  #0.0 shift for non-H atoms
+
+                atom_dict["total_degree"].append(atom.GetTotalDegree())
+                atom_dict["total_num_H"].append(atom.GetTotalNumHs())
+                atom_dict["total_valence"].append(atom.GetTotalValence())
 
             for n, bond in enumerate(mol.GetBonds()):
                 bond_dict["mol_id"].append(mol_id)
@@ -102,6 +121,8 @@ def processData(filepath):
                 bond_dict["distance"].append(distance_matrix[bond_source][bond_target])
                 bond_dict["source"].append(bond_source)
                 bond_dict["target"].append(bond_target)
+                bond_dict["is_conjugated"].append(bond.GetIsConjugated())
+                bond_dict["stereo"].append(bond.GetStereo())
 
             mol_id += 1
 
@@ -136,6 +157,9 @@ def one_hot_encode_atoms(atom_symbols):
 def create_graph_tensor(mol_data, atom_data, bond_data):
     H_indices = atom_data.index[atom_data["atom_symbol"] == "H"].tolist()
     atom_nums = one_hot_encode_atoms(atom_data["atom_symbol"])
+    chiral_tags = tf.one_hot(atom_data["chiral_tag"], 9)
+    hybridizations = tf.one_hot(atom_data["hybridization"], 9)
+    stereo = tf.one_hot(bond_data["stereo"], 8)
 
     graph_tensor = tfgnn.GraphTensor.from_pieces(
 
@@ -144,7 +168,21 @@ def create_graph_tensor(mol_data, atom_data, bond_data):
         node_sets = {
             "atom": tfgnn.NodeSet.from_fields(
                 sizes = mol_data["n_atoms"],
-                features = {"atom_num": atom_nums}
+                features = {"atom_num": atom_nums,
+                            "chiral_tag": chiral_tags,
+                            "degree": atom_data["degree"],
+                            "explicit_valence": atom_data["exp_valence"],
+                            "formal_charge": atom_data["formal_charge"],
+                            "hybridization": hybridizations,
+                            "implicit_valence": atom_data["imp_valence"],
+                            "is_aromatic": atom_data["is_aromatic"],
+                            "no_implicit": atom_data["no_implicit"],
+                            "num_explicit_Hs": atom_data["num_exp_H"],
+                            "num_implicit_Hs": atom_data["num_imp_H"],
+                            "num_radical_electrons": atom_data["num_radical_electrons"],
+                            "total_degree": atom_data["total_degree"],
+                            "total_num_Hs": atom_data["total_num_H"],
+                            "total_valence": atom_data["total_valence"]}
             ),
             "_readout": tfgnn.NodeSet.from_fields(
                 sizes = mol_data["n_pro"],
@@ -159,7 +197,9 @@ def create_graph_tensor(mol_data, atom_data, bond_data):
                     source = ("atom", bond_data["source"]),
                     target = ("atom", bond_data["target"])),
                 features = {"bond_type": bond_data["bond_type"],
-                            "distance": bond_data["distance"]}
+                            "distance": bond_data["distance"],
+                            "is_conjugated": bond_data["is_conjugated"],
+                            "stereo": stereo}
             ),
             "_readout/shift": tfgnn.EdgeSet.from_fields(
                 sizes = mol_data["n_pro"],
