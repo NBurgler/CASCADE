@@ -44,6 +44,7 @@ def edge_sets_fn(edge_set, *, edge_set_name):
 def set_initial_node_state(node_set, *, node_set_name):
     '''if node_set_name == "atom":
         return tf.keras.layers.Embedding(4, 256)(node_set["atom_num"])'''
+    # TODO: add other features
     return tf.keras.layers.Dense(256)(node_set["atom_num"])
 
 def set_initial_edge_state(edge_set, *, edge_set_name):
@@ -52,7 +53,7 @@ def set_initial_edge_state(edge_set, *, edge_set_name):
     if edge_set_name == "bond":
         distances = features.pop('distance')
         features['rbf_distance'] = rbf_expansion(distances)
-    
+    # TODO: add other features
     return tf.keras.layers.Dense(256)(tf.expand_dims(tf.keras.layers.Concatenate()([edge_set["bond_type"], edge_set["rbf_distance"]]), axis=1))
     
 
@@ -79,9 +80,6 @@ def readout_layers():
 def model_fn(graph_tensor_spec: tfgnn.GraphTensorSpec):
     #preprocessing layers
     graph = inputs = tf.keras.layers.Input(type_spec=graph_tensor_spec)
-
-    #graph = preproc_input.merge_batch_to_components()
-
     graph = tfgnn.keras.layers.MapFeatures(node_sets_fn=set_initial_node_state, edge_sets_fn=set_initial_edge_state)(graph)
 
     # Message passing layers
@@ -166,7 +164,7 @@ if __name__ == "__main__":
 
     trainer = runner.KerasTrainer(
         strategy=tf.distribute.MirroredStrategy(),
-        model_dir="/tmp/gnn_model/",
+        model_dir=path + "tmp/gnn_model/",
         callbacks=[tensorboard_callback, checkpoint],
         steps_per_epoch=steps_per_epoch,
         validation_steps=validation_steps,
