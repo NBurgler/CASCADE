@@ -14,7 +14,7 @@ num_examples = 2
 #dataset = tf.data.TFRecordDataset(filenames=["data/own_data/shift_train.tfrecords"])
 dataset_provider = runner.TFRecordDatasetProvider(filenames=["data/own_data/shift_train.tfrecords"])
 dataset = dataset_provider.get_dataset(tf.distribute.InputContext())
-print(dataset.take(1).context.__getitem__("smiles"))
+
 sample = next(iter(dataset.batch(1)))
 
 input_dict = {"examples": sample}
