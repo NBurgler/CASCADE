@@ -25,7 +25,7 @@ node_sets {
             key: "degree"
             value: {
                 description: "The atom's degree, an integer value."
-                dtype: DT_INT32
+                dtype: DT_INT64
             }
         }
 
@@ -33,7 +33,7 @@ node_sets {
             key: "explicit_valence"
             value: {
                 description: "The atom's explicit_valence, an integer value."
-                dtype: DT_INT32
+                dtype: DT_INT64
             }
         }
         
@@ -41,7 +41,7 @@ node_sets {
             key: "formal_charge"
             value: {
                 description: "The atom's formal charge, an integer value."
-                dtype: DT_INT32
+                dtype: DT_INT64
             }
         }
 
@@ -58,7 +58,7 @@ node_sets {
             key: "implicit_valence"
             value: {
                 description: "The atom's implicit valence, an integer value."
-                dtype: DT_INT32
+                dtype: DT_INT64
             }
         }
 
@@ -66,7 +66,7 @@ node_sets {
             key: "is_aromatic"
             value: {
                 description: "0 if the atom is not aromatic, 1 if it is."
-                dtype: DT_INT32
+                dtype: DT_INT64
             }
         }
 
@@ -74,7 +74,7 @@ node_sets {
             key: "no_implicit"
             value: {
                 description: "0 if the atom is allowed to have implicit atoms, 1 if it isn't"
-                dtype: DT_INT32
+                dtype: DT_INT64
             }
         }
 
@@ -82,7 +82,7 @@ node_sets {
             key: "num_explicit_Hs"
             value: {
                 description: "The number of explicit hydrogens on the atom."
-                dtype: DT_INT32
+                dtype: DT_INT64
             }
         }
 
@@ -90,7 +90,7 @@ node_sets {
             key: "num_implicit_Hs"
             value: {
                 description: "The number of implicit hydrogens on the atom."
-                dtype: DT_INT32
+                dtype: DT_INT64
             }
         }
 
@@ -98,7 +98,7 @@ node_sets {
             key: "num_radical_electrons"
             value: {
                 description: "The number of radical atoms."
-                dtype: DT_INT32
+                dtype: DT_INT64
             }
         }
 
@@ -106,7 +106,7 @@ node_sets {
             key: "total_degree"
             value: {
                 description: "The degree of the atom including H-atoms."
-                dtype: DT_INT32
+                dtype: DT_INT64
             }
         }
 
@@ -114,7 +114,7 @@ node_sets {
             key: "total_num_Hs"
             value: {
                 description: "The totel number of hydrogen atoms on the atom."
-                dtype: DT_INT32
+                dtype: DT_INT64
             }
         }
 
@@ -122,7 +122,7 @@ node_sets {
             key: "total_valence"
             value: {
                 description: "The total (implicit and explicit) valence of the atom."
-                dtype: DT_INT32
+                dtype: DT_INT64
             }
         }
     }
@@ -176,7 +176,7 @@ edge_sets {
             key: "is_conjugated"
             value: {
                 description: "0 if the bond is not conjugated, 1 if it is."
-                dtype: DT_INT32
+                dtype: DT_INT64
             }
         }
 

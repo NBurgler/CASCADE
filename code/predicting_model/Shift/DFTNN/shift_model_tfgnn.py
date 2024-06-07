@@ -42,10 +42,36 @@ def edge_sets_fn(edge_set, *, edge_set_name):
     return features
 
 def set_initial_node_state(node_set, *, node_set_name):
-    '''if node_set_name == "atom":
-        return tf.keras.layers.Embedding(4, 256)(node_set["atom_num"])'''
-    # TODO: add other features
-    return tf.keras.layers.Dense(256)(node_set["atom_num"])
+    # one-hot encoded features are embedded immediately
+    atom_num_embedding = tf.keras.layers.Dense(64)(node_set["atom_num"])
+    chiral_tag_embedding = tf.keras.layers.Dense(64)(node_set["chiral_tag"])
+    hybridization_embedding = tf.keras.layers.Dense(64)(node_set["hybridization"])
+
+    # other numerical features are first reshaped...
+    degree = tf.keras.layers.Reshape((-1, 1))(node_set["degree"])
+    explicit_valence = tf.keras.layers.Reshape((-1, 1))(node_set["explicit_valence"])
+    formal_charge = tf.keras.layers.Reshape((-1, 1))(node_set["formal_charge"])
+    implicit_valence = tf.keras.layers.Reshape((-1, 1))(node_set["implicit_valence"])
+    is_aromatic = tf.keras.layers.Reshape((-1, 1))(node_set["is_aromatic"])
+    no_implicit = tf.keras.layers.Reshape((-1, 1))(node_set["no_implicit"])
+    num_explicit_Hs = tf.keras.layers.Reshape((-1, 1))(node_set["num_explicit_Hs"])
+    num_implicit_Hs = tf.keras.layers.Reshape((-1, 1))(node_set["num_implicit_Hs"])
+    num_radical_electrons = tf.keras.layers.Reshape((-1, 1))(node_set["num_radical_electrons"])
+    total_degree = tf.keras.layers.Reshape((-1, 1))(node_set["total_degree"])
+    total_num_Hs = tf.keras.layers.Reshape((-1, 1))(node_set["total_num_Hs"])
+    total_valence = tf.keras.layers.Reshape((-1, 1))(node_set["total_valence"])
+
+    # ... and then concatenated so that they can be embedded as well
+    numerical_features = tf.keras.layers.Concatenate(axis=2)([degree, explicit_valence, formal_charge, implicit_valence, is_aromatic, no_implicit,
+                                                              num_explicit_Hs, num_implicit_Hs, num_radical_electrons, total_degree, total_num_Hs, 
+                                                              total_valence])
+    numerical_features = tf.squeeze(numerical_features, 1)
+    numerical_embedding = tf.keras.layers.Dense(64)(numerical_features)
+    
+    # the one-hot and numerical embeddings are concatenated and fed to another dense layer
+    concatenated_embedding = tf.keras.layers.Concatenate()([atom_num_embedding, chiral_tag_embedding,
+                                                            hybridization_embedding, numerical_embedding])
+    return tf.keras.layers.Dense(256)(concatenated_embedding)
 
 def set_initial_edge_state(edge_set, *, edge_set_name):
     features = edge_set.get_features_dict()
@@ -90,14 +116,14 @@ def model_fn(graph_tensor_spec: tfgnn.GraphTensorSpec):
     for _ in range(3):
         graph = tfgnn.keras.layers.GraphUpdate(
             edge_sets={"bond": tfgnn.keras.layers.EdgeSetUpdate(
-                    next_state=tfgnn.keras.layers.NextStateFromConcat(
-                        transformation=edge_updating()
+                    next_state=tfgnn.keras.layers.ResidualNextState(
+                        residual_block=edge_updating()
                 )
             )},
             node_sets={"atom": tfgnn.keras.layers.NodeSetUpdate(
                 {"bond": tfgnn.keras.layers.Pool(tag=tfgnn.SOURCE, reduce_type="prod|sum")},
-                next_state=tfgnn.keras.layers.NextStateFromConcat(
-                    transformation=node_updating()
+                next_state=tfgnn.keras.layers.ResidualNextState(
+                    residual_block=node_updating()
                 )
             )}
         )(graph)
@@ -135,7 +161,7 @@ if __name__ == "__main__":
     path = "/home/s3665828/Documents/Masters_Thesis/repo/CASCADE/code/predicting_model/Shift/DFTNN/"
     batch_size = 32
     initial_learning_rate = 5E-4
-    epochs = 1200
+    epochs = 1
     epoch_divisor = 1
 
     train_ds_provider = runner.TFRecordDatasetProvider(filenames=["data/own_data/shift_train.tfrecords"])

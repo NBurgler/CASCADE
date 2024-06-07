@@ -175,8 +175,8 @@ def create_graph_tensor(mol_data, atom_data, bond_data):
                             "formal_charge": atom_data["formal_charge"],
                             "hybridization": hybridizations,
                             "implicit_valence": atom_data["imp_valence"],
-                            "is_aromatic": atom_data["is_aromatic"],
-                            "no_implicit": atom_data["no_implicit"],
+                            "is_aromatic": atom_data["is_aromatic"].astype(int),
+                            "no_implicit": atom_data["no_implicit"].astype(int),
                             "num_explicit_Hs": atom_data["num_exp_H"],
                             "num_implicit_Hs": atom_data["num_imp_H"],
                             "num_radical_electrons": atom_data["num_radical_electrons"],
@@ -197,8 +197,9 @@ def create_graph_tensor(mol_data, atom_data, bond_data):
                     source = ("atom", bond_data["source"]),
                     target = ("atom", bond_data["target"])),
                 features = {"bond_type": bond_data["bond_type"],
-                            "distance": bond_data["distance"],
-                            "is_conjugated": bond_data["is_conjugated"],
+                            "distance": bond_data["distance"].astype('float32'),
+                            "rbf_distance": [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
+                            "is_conjugated": bond_data["is_conjugated"].astype(int),
                             "stereo": stereo}
             ),
             "_readout/shift": tfgnn.EdgeSet.from_fields(
@@ -224,16 +225,24 @@ if __name__ == "__main__":
 
     mol_df = mol_df.sample(frac=1)  #shuffle
 
-    train_data = tf.io.TFRecordWriter("data/own_data/shift_train.tfrecords")
-    test_data = tf.io.TFRecordWriter("data/own_data/shift_test.tfrecords")
-    valid_data = tf.io.TFRecordWriter("data/own_data/shift_valid.tfrecords")
+    train_data = tf.io.TFRecordWriter("data/own_data/shift_train2.tfrecords")
+    test_data = tf.io.TFRecordWriter("data/own_data/shift_test2.tfrecords")
+    valid_data = tf.io.TFRecordWriter("data/own_data/shift_valid2.tfrecords")
 
     total = len(mol_df)
     '''print(len(mol_df))
     print(len(mol_df)*0.70)
     print(len(mol_df)*0.15)'''
 
-    for idx, mol_id in tqdm(enumerate(mol_df["mol_id"])):
+    graph_schema = tfgnn.read_schema("code/predicting_model/GraphSchema.pbtxt")
+    graph_spec = tfgnn.create_graph_spec_from_schema_pb(graph_schema)
+
+    '''graph = tfgnn.random_graph_tensor(graph_spec)
+    random_example = tfgnn.write_example(graph)
+    print(random_example)
+    print(tfgnn.check_compatible_with_schema_pb(graph, graph_schema))'''
+
+    for idx, mol_id in (enumerate(mol_df["mol_id"])):
         mol_data = mol_df.loc[mol_df["mol_id"] == mol_id]
         atom_data = atom_df.loc[atom_df["mol_id"] == mol_id]
         bond_data = bond_df.loc[bond_df["mol_id"] == mol_id]
@@ -243,9 +252,11 @@ if __name__ == "__main__":
         
         # make sure the index resets to 0 instead of continuing from the previous molecule
         atom_data = atom_data.reset_index(drop=True)
-            
         graph_tensor = create_graph_tensor(mol_data, atom_data, bond_data)
         example = tfgnn.write_example(graph_tensor)
+        print(example)
+        print(tfgnn.check_compatible_with_schema_pb(graph_tensor, graph_schema))
+        break
 
         if idx < total*0.7:
             train_data.write(example.SerializeToString())
