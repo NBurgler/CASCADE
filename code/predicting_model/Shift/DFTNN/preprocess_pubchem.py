@@ -19,11 +19,11 @@ from itertools import islice
 
 from nfp.preprocessing import MolAPreprocessor, GraphSequence
 
-dataset = "own"
+dataset = "cascade"
 
 if (dataset == "cascade"):
     mols = []
-    with gzip.open('../../../../data/DFT8K/DFT.sdf.gz', 'r') as sdfile:
+    with gzip.open('data/DFT8K/DFT8K.csv.gz', 'r') as sdfile:
         mol_supplier = ForwardSDMolSupplier(sdfile, removeHs=False, sanitize=False)
         for mol in tqdm(mol_supplier):
             if mol:
@@ -32,7 +32,7 @@ if (dataset == "cascade"):
     mols = pd.DataFrame(mols, columns=['mol_id', 'Mol', 'n_atoms'])
     mols = mols.set_index('mol_id', drop=True)
 
-    df = pd.read_csv('../../../../data/DFT8K/DFT8K.csv.gz', index_col=0)
+    df = pd.read_csv('data/DFT8K/DFT8K.csv.gz', index_col=0)
     #only choose C and H
     df = df.loc[df.atom_type == 1]
 
@@ -85,7 +85,6 @@ def to_C(atom):
 
 df['Mol'] = mols.reindex(df.mol_id).Mol.values
 df = df.dropna()
-
 df = df.loc[df.apply(lambda x: to_C(x['Mol'].GetAtomWithIdx(x['atom_index'])), axis=1).values]
 
 grouped_df = df.groupby(['mol_id'])

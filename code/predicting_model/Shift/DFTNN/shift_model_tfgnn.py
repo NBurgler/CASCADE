@@ -121,7 +121,7 @@ def model_fn(graph_tensor_spec: tfgnn.GraphTensorSpec):
                 )
             )},
             node_sets={"atom": tfgnn.keras.layers.NodeSetUpdate(
-                {"bond": tfgnn.keras.layers.Pool(tag=tfgnn.SOURCE, reduce_type="prod|sum")},
+                {"bond": tfgnn.keras.layers.Pool(tag=tfgnn.TARGET, reduce_type="prod|sum")},
                 next_state=tfgnn.keras.layers.ResidualNextState(
                     residual_block=node_updating()
                 )
@@ -131,7 +131,7 @@ def model_fn(graph_tensor_spec: tfgnn.GraphTensorSpec):
     #readout layers
     output = tfgnn.keras.layers.GraphUpdate(
         node_sets={"atom": tfgnn.keras.layers.NodeSetUpdate(
-            {"bond": tfgnn.keras.layers.Pool(tag=tfgnn.SOURCE, reduce_type="sum")},
+            {"bond": tfgnn.keras.layers.Pool(tag=tfgnn.TARGET, reduce_type="sum")},
             next_state=tfgnn.keras.layers.NextStateFromConcat(
                 transformation=readout_layers()
             )
@@ -161,7 +161,7 @@ if __name__ == "__main__":
     path = "/home/s3665828/Documents/Masters_Thesis/repo/CASCADE/code/predicting_model/Shift/DFTNN/"
     batch_size = 32
     initial_learning_rate = 5E-4
-    epochs = 1
+    epochs = 5
     epoch_divisor = 1
 
     train_ds_provider = runner.TFRecordDatasetProvider(filenames=["data/own_data/shift_train.tfrecords"])
