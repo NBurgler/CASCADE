@@ -198,7 +198,6 @@ def create_graph_tensor(mol_data, atom_data, bond_data):
                     target = ("atom", bond_data["target"])),
                 features = {"bond_type": bond_data["bond_type"],
                             "distance": bond_data["distance"].astype('float32'),
-                            "rbf_distance": [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
                             "is_conjugated": bond_data["is_conjugated"].astype(int),
                             "stereo": stereo}
             ),
@@ -225,14 +224,13 @@ if __name__ == "__main__":
 
     mol_df = mol_df.sample(frac=1)  #shuffle
 
-    train_data = tf.io.TFRecordWriter("data/own_data/shift_train2.tfrecords")
-    test_data = tf.io.TFRecordWriter("data/own_data/shift_test2.tfrecords")
-    valid_data = tf.io.TFRecordWriter("data/own_data/shift_valid2.tfrecords")
+    options = tf.io.TFRecordOptions(compression_type="GZIP")
+
+    train_data = tf.io.TFRecordWriter("data/own_data/shift_train.tfrecords.gz", options=options)
+    test_data = tf.io.TFRecordWriter("data/own_data/shift_test.tfrecords.gz", options=options)
+    valid_data = tf.io.TFRecordWriter("data/own_data/shift_valid.tfrecords.gz", options=options)
 
     total = len(mol_df)
-    '''print(len(mol_df))
-    print(len(mol_df)*0.70)
-    print(len(mol_df)*0.15)'''
 
     graph_schema = tfgnn.read_schema("code/predicting_model/GraphSchema.pbtxt")
     graph_spec = tfgnn.create_graph_spec_from_schema_pb(graph_schema)
@@ -242,7 +240,7 @@ if __name__ == "__main__":
     print(random_example)
     print(tfgnn.check_compatible_with_schema_pb(graph, graph_schema))'''
 
-    for idx, mol_id in (enumerate(mol_df["mol_id"])):
+    for idx, mol_id in tqdm(enumerate(mol_df["mol_id"])):
         mol_data = mol_df.loc[mol_df["mol_id"] == mol_id]
         atom_data = atom_df.loc[atom_df["mol_id"] == mol_id]
         bond_data = bond_df.loc[bond_df["mol_id"] == mol_id]
@@ -254,9 +252,6 @@ if __name__ == "__main__":
         atom_data = atom_data.reset_index(drop=True)
         graph_tensor = create_graph_tensor(mol_data, atom_data, bond_data)
         example = tfgnn.write_example(graph_tensor)
-        print(example)
-        print(tfgnn.check_compatible_with_schema_pb(graph_tensor, graph_schema))
-        break
 
         if idx < total*0.7:
             train_data.write(example.SerializeToString())
