@@ -226,9 +226,13 @@ if __name__ == "__main__":
 
     options = tf.io.TFRecordOptions(compression_type="GZIP")
 
-    train_data = tf.io.TFRecordWriter("data/own_data/shift_train.tfrecords.gz", options=options)
-    test_data = tf.io.TFRecordWriter("data/own_data/shift_test.tfrecords.gz", options=options)
-    valid_data = tf.io.TFRecordWriter("data/own_data/shift_valid.tfrecords.gz", options=options)
+    #train_data = tf.io.TFRecordWriter("data/own_data/shift_train.tfrecords.gz", options=options)
+    #test_data = tf.io.TFRecordWriter("data/own_data/shift_test.tfrecords.gz", options=options)
+    #valid_data = tf.io.TFRecordWriter("data/own_data/shift_valid.tfrecords.gz", options=options)
+
+    train_data = tf.io.TFRecordWriter("data/own_data/shift_train.tfrecords")
+    test_data = tf.io.TFRecordWriter("data/own_data/shift_test.tfrecords")
+    valid_data = tf.io.TFRecordWriter("data/own_data/shift_valid.tfrecords")
 
     total = len(mol_df)
 

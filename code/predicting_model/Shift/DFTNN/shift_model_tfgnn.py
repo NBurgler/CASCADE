@@ -85,21 +85,21 @@ def set_initial_edge_state(edge_set, *, edge_set_name):
 
 def edge_updating():
     return tf.keras.Sequential([
-        tf.keras.layers.Dense(512, activation="softplus"),
+        tf.keras.layers.Dense(512, activation="relu"),
         tf.keras.layers.Dense(256),
-        tf.keras.layers.Dense(256, activation="softplus"),
-        tf.keras.layers.Dense(256, activation="softplus")])
+        tf.keras.layers.Dense(256, activation="relu"),
+        tf.keras.layers.Dense(256, activation="relu")])
 
 def node_updating():
     return tf.keras.Sequential([
-        tf.keras.layers.Dense(256, activation="softplus"),
+        tf.keras.layers.Dense(256, activation="relu"),
         tf.keras.layers.Dense(256)])
 
 def readout_layers():
     return tf.keras.Sequential([
-        tf.keras.layers.Dense(256, activation="softplus"),
-        tf.keras.layers.Dense(256, activation="softplus"),
-        tf.keras.layers.Dense(128, activation="softplus"),
+        tf.keras.layers.Dense(256, activation="relu"),
+        tf.keras.layers.Dense(256, activation="relu"),
+        tf.keras.layers.Dense(128, activation="relu"),
         tf.keras.layers.Dense(1)])
 
 
@@ -129,19 +129,20 @@ def model_fn(graph_tensor_spec: tfgnn.GraphTensorSpec):
         )(graph)
 
     #readout layers
-    output = tfgnn.keras.layers.GraphUpdate(
+    '''output = tfgnn.keras.layers.GraphUpdate(
         node_sets={"atom": tfgnn.keras.layers.NodeSetUpdate(
-            {"bond": tfgnn.keras.layers.Pool(tag=tfgnn.TARGET, reduce_type="sum")},
+            {"bond": tfgnn.keras.layers.Pool(tag=tfgnn.SOURCE, reduce_type="sum")},
             next_state=tfgnn.keras.layers.NextStateFromConcat(
                 transformation=readout_layers()
             )
         )}
-    )(graph)
+    )(graph)'''
+    output = graph
 
     '''readout_features = tfgnn.keras.layers.StructuredReadout("shift")(graph)
-    logits = tf.keras.layers.Dense(256, activation="softplus")(readout_features)
-    logits = tf.keras.layers.Dense(256, activation="softplus")(logits)
-    logits = tf.keras.layers.Dense(128, activation="softplus")(logits)
+    logits = tf.keras.layers.Dense(256, activation="relu")(readout_features)
+    logits = tf.keras.layers.Dense(256, activation="relu")(logits)
+    logits = tf.keras.layers.Dense(128, activation="relu")(logits)
     output = tf.keras.layers.Dense(1)(logits)'''
     
     return tf.keras.Model(inputs=[inputs], outputs=[output])
@@ -159,7 +160,7 @@ def decode_fn(record_bytes):
 
 if __name__ == "__main__":
     path = "/home/s3665828/Documents/Masters_Thesis/repo/CASCADE/code/predicting_model/Shift/DFTNN/"
-    batch_size = 32
+    batch_size = 128
     initial_learning_rate = 5E-4
     epochs = 5
     epoch_divisor = 1
