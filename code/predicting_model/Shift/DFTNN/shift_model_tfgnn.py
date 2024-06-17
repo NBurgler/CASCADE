@@ -71,7 +71,7 @@ def set_initial_node_state(node_set, *, node_set_name):
     # the one-hot and numerical embeddings are concatenated and fed to another dense layer
     concatenated_embedding = tf.keras.layers.Concatenate()([atom_num_embedding, chiral_tag_embedding,
                                                             hybridization_embedding, numerical_embedding])
-    return tf.keras.layers.Dense(256)(concatenated_embedding)
+    return tf.keras.layers.Dense(256, name="node_init")(concatenated_embedding)
 
 def set_initial_edge_state(edge_set, *, edge_set_name):
     features = edge_set.get_features_dict()
@@ -80,20 +80,31 @@ def set_initial_edge_state(edge_set, *, edge_set_name):
         distances = features.pop('distance')
         features['rbf_distance'] = rbf_expansion(distances)
     # TODO: add other features
-    return tf.keras.layers.Dense(256)(tf.expand_dims(tf.keras.layers.Concatenate()([edge_set["bond_type"], edge_set["rbf_distance"]]), axis=1))
+    return tf.keras.layers.Dense(256, name="edge_init")(features['rbf_distance'])
     
+def dense(units, activation="relu"):
+    """A Dense layer with regularization (L2 and Dropout)."""
+    l2_regularization = 5e-4
+    dropout_rate = 0.5
+    regularizer = tf.keras.regularizers.l2(l2_regularization)
+    return tf.keras.Sequential([
+        tf.keras.layers.Dense(
+            units,
+            activation=activation,
+            kernel_regularizer=regularizer,
+            bias_regularizer=regularizer),
+        tf.keras.layers.Dropout(dropout_rate)
+    ])
 
 def edge_updating():
     return tf.keras.Sequential([
-        tf.keras.layers.Dense(512, activation="relu"),
-        tf.keras.layers.Dense(256),
-        tf.keras.layers.Dense(256, activation="relu"),
-        tf.keras.layers.Dense(256, activation="relu")])
+        dense(512, activation="relu"),
+        dense(256, activation="relu")])
 
 def node_updating():
     return tf.keras.Sequential([
-        tf.keras.layers.Dense(256, activation="relu"),
-        tf.keras.layers.Dense(256)])
+        dense(256, activation="relu"),
+        dense(256)])
 
 def readout_layers():
     return tf.keras.Sequential([
@@ -115,6 +126,17 @@ def model_fn(graph_tensor_spec: tfgnn.GraphTensorSpec):
 
     for _ in range(3):
         graph = tfgnn.keras.layers.GraphUpdate(
+            node_sets={"atom": tfgnn.keras.layers.NodeSetUpdate(
+                {"bond": tfgnn.keras.layers.Pool(tag=tfgnn.TARGET, edge_set_name="bond", reduce_type="sum")},
+                next_state=tfgnn.keras.layers.NextStateFromConcat(dense(256))
+            )}
+        )(graph)
+        graph = tfgnn.keras.layers.GraphUpdate(
+            edge_sets={"bond": tfgnn.keras.layers.EdgeSetUpdate(
+                next_state=tfgnn.keras.layers.NextStateFromConcat(dense(256))
+            )}
+        )(graph)
+        '''graph = tfgnn.keras.layers.GraphUpdate(
             edge_sets={"bond": tfgnn.keras.layers.EdgeSetUpdate(
                     next_state=tfgnn.keras.layers.ResidualNextState(
                         residual_block=edge_updating()
@@ -126,7 +148,7 @@ def model_fn(graph_tensor_spec: tfgnn.GraphTensorSpec):
                     residual_block=node_updating()
                 )
             )}
-        )(graph)
+        )(graph)'''
 
     #readout layers
     '''output = tfgnn.keras.layers.GraphUpdate(
@@ -160,9 +182,9 @@ def decode_fn(record_bytes):
 
 if __name__ == "__main__":
     path = "/home/s3665828/Documents/Masters_Thesis/repo/CASCADE/code/predicting_model/Shift/DFTNN/"
-    batch_size = 128
+    batch_size = 32
     initial_learning_rate = 5E-4
-    epochs = 5
+    epochs = 20
     epoch_divisor = 1
 
     train_ds_provider = runner.TFRecordDatasetProvider(filenames=["data/own_data/shift_train.tfrecords"])
