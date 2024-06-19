@@ -53,8 +53,8 @@ parser = argparse.ArgumentParser()
 parser.add_argument('-r', '--restart', action='store_true')
 args = parser.parse_args()
 
-train = pd.read_pickle(path + 'own_train.pkl.gz')
-valid = pd.read_pickle(path + 'own_valid.pkl.gz')
+train = pd.read_pickle(path + 'train.pkl.gz')
+valid = pd.read_pickle(path + 'valid.pkl.gz')
 
 y_train = train.Shift.values
 y_valid = valid.Shift.values
@@ -87,7 +87,7 @@ class RBFSequence(GraphSequence):
 
         return batch_data
 
-with open(path + 'own_processed_inputs.p', 'rb') as f:
+with open(path + 'processed_inputs.p', 'rb') as f:
     input_data = pickle.load(f)
     
 preprocessor = input_data['preprocessor']

@@ -83,13 +83,19 @@ if __name__ == "__main__":
     example = next(iter(dataset.batch(1)))
     input_graph = tfgnn.parse_example(graph_spec, example)
     graph = input_graph
-    graph = tfgnn.keras.layers.MapFeatures(node_sets_fn=set_initial_node_state, edge_sets_fn=set_initial_edge_state)(graph)
+    #graph = tfgnn.keras.layers.MapFeatures(node_sets_fn=set_initial_node_state, edge_sets_fn=set_initial_edge_state)(graph)
     print(graph)
-    
-    check_zero(input_graph)
+    print(graph.node_sets["_readout"].__getitem__("shift"))
+    print(graph.edge_sets["_readout/shift"])
+    print(graph.edge_sets["_readout/shift"].adjacency.source)
+    print(graph.edge_sets["_readout/shift"].adjacency.target)
+    #check_zero(input_graph)
 
-    train_df = pd.read_pickle('code/predicting_model/Shift/DFTNN/cascade_train.pkl.gz', compression="gzip")
-    print(train_df)
+    '''atom_data = pd.read_csv("code/predicting_model/Shift/DFTNN/own_data_atom.csv.gz", index_col=0)
+    print(atom_data)
+    print(atom_data["Shift"])
+    H_indices = atom_data.index[atom_data["atom_symbol"] == "H"].tolist()
+    print(atom_data["Shift"][H_indices])'''
 
     input_dict = {"examples": example}
     output_dict = signature_fn(**input_dict)
