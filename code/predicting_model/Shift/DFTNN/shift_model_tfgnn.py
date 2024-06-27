@@ -25,6 +25,22 @@ from wandb.keras import WandbCallback
 )'''
 
 sys.path.append('code/predicting_model')
+
+class GradientLogger(tf.keras.callbacks.Callback):
+    def __init__(self, log_dir):
+        super(GradientLogger, self).__init__()
+        self.log_dir = log_dir
+        self.writer = tf.summary.create_file_writer(log_dir)
+
+    def on_epoch_end(self, epoch, logs=None):
+        with self.writer.as_default():
+            for layer in self.model.layers:
+                if hasattr(layer, 'trainable_weights'):
+                    for weight in layer.trainable_weights:
+                        gradients = self.model.optimizer.get_gradients(self.model.total_loss, weight)
+                        for grad, var in zip(gradients, self.model.trainable_weights):
+                            tf.summary.histogram(var.name + '/gradients', grad, step=epoch)
+            self.writer.flush()
     
 def rbf_expansion(distances, mu=0, delta=0.1, kmax=256):
     k = np.arange(0, kmax)
@@ -33,9 +49,9 @@ def rbf_expansion(distances, mu=0, delta=0.1, kmax=256):
 
 def set_initial_node_state(node_set, *, node_set_name):
     # one-hot encoded features are embedded immediately
-    atom_num_embedding = tf.keras.layers.Dense(64)(node_set["atom_num"])
-    chiral_tag_embedding = tf.keras.layers.Dense(64)(node_set["chiral_tag"])
-    hybridization_embedding = tf.keras.layers.Dense(64)(node_set["hybridization"])
+    atom_num_embedding = tf.keras.layers.Dense(64, name="atom_num_embedding")(node_set["atom_num"])
+    chiral_tag_embedding = tf.keras.layers.Dense(64, name="chiral_tag_embedding")(node_set["chiral_tag"])
+    hybridization_embedding = tf.keras.layers.Dense(64, name="hybridization_embedding")(node_set["hybridization"])
 
     # other numerical features are first reshaped...
     '''degree = tf.keras.layers.Reshape((-1, 1))(node_set["degree"])
@@ -69,7 +85,7 @@ def set_initial_node_state(node_set, *, node_set_name):
                                                               num_explicit_Hs, num_implicit_Hs, num_radical_electrons, total_degree, total_num_Hs, 
                                                               total_valence])
     #numerical_features = tf.keras.backend.print_tensor(numerical_features, summarize=-1)
-    numerical_embedding = tf.keras.layers.Dense(64)(numerical_features)
+    numerical_embedding = tf.keras.layers.Dense(64, name="numerical_embedding")(numerical_features)
     #numerical_embedding = tf.keras.backend.print_tensor(numerical_embedding, summarize=-1)
     
     # the one-hot and numerical embeddings are concatenated and fed to another dense layer
@@ -79,14 +95,15 @@ def set_initial_node_state(node_set, *, node_set_name):
     return tf.keras.layers.Dense(256, name="node_init")(concatenated_embedding)
 
 def set_initial_edge_state(edge_set, *, edge_set_name):
-    features = edge_set.get_features_dict()
-
-    if edge_set_name == "bond":
-        distances = edge_set["distance"]
-        rbf_distance = rbf_expansion(distances)
+    distance = tf.keras.layers.Reshape((-1,))(edge_set["distance"])
+    #distance = tf.keras.backend.print_tensor(distance, summarize=-1)
+    rbf_distance = rbf_expansion(edge_set["distance"])
+    rbf_distance = tf.keras.layers.Reshape((-1,))(rbf_distance)
 
     #rbf_distance = tf.keras.backend.print_tensor(rbf_distance, summarize=-1)
     # TODO: add other features
+    edge_embedding = tf.keras.layers.Dense(256, name="edge_init")(rbf_distance)
+    #edge_embedding = tf.keras.backend.print_tensor(edge_embedding, summarize=-1)
     return rbf_distance
     
 def dense(units, activation=None):
@@ -108,7 +125,10 @@ def dense(units, activation=None):
 def edge_updating():
     return tf.keras.Sequential([
         dense(512, activation="relu"),
+        dense(256),
+        dense(256, activation="relu"),
         dense(256, activation="relu")])
+
 
 def node_updating():
     return tf.keras.Sequential([
@@ -117,17 +137,17 @@ def node_updating():
 
 def readout_layers():
     return tf.keras.Sequential([
-        tf.keras.layers.Dense(256, activation="relu"),
-        tf.keras.layers.Dense(256, activation="relu"),
-        tf.keras.layers.Dense(128, activation="relu"),
-        tf.keras.layers.Dense(1)])
+        dense(256, activation="relu"),
+        dense(256, activation="relu"),
+        dense(128, activation="relu"),
+        dense(1)])
 
 
 def model_fn(graph_tensor_spec: tfgnn.GraphTensorSpec):
     #preprocessing layers
     graph = inputs = tf.keras.layers.Input(type_spec=graph_tensor_spec)
     graph = tfgnn.keras.layers.MapFeatures(node_sets_fn=set_initial_node_state, edge_sets_fn=set_initial_edge_state)(graph)
-
+    labels = tf.keras.backend.print_tensor(graph.node_sets["_readout"].__getitem__("shift"), summarize=-1)
     # Message passing layers
     # First, the edges are updated according to the layers in edge_updating
     # Then, the updated edge states are pooled to the node states (hadamard product + element-wise sum)
@@ -137,15 +157,13 @@ def model_fn(graph_tensor_spec: tfgnn.GraphTensorSpec):
         graph = tfgnn.keras.layers.GraphUpdate(
             node_sets={"atom": tfgnn.keras.layers.NodeSetUpdate(
                 {"bond": tfgnn.keras.layers.Pool(tag=tfgnn.TARGET, edge_set_name="bond", reduce_type="sum")},
-                next_state=tfgnn.keras.layers.NextStateFromConcat(dense(256, activation="relu"))
-            )}
-        )(graph)
-        graph = tfgnn.keras.layers.GraphUpdate(
+                next_state=tfgnn.keras.layers.ResidualNextState(node_updating())
+            )},
             edge_sets={"bond": tfgnn.keras.layers.EdgeSetUpdate(
-                next_state=tfgnn.keras.layers.NextStateFromConcat(dense(256, activation="relu"))
+                next_state=tfgnn.keras.layers.ResidualNextState(edge_updating())
             )}
         )(graph)
-        '''graph = tfgnn.keras.layers.GraphUpdate(
+    '''graph = tfgnn.keras.layers.GraphUpdate(
             edge_sets={"bond": tfgnn.keras.layers.EdgeSetUpdate(
                     next_state=tfgnn.keras.layers.ResidualNextState(
                         residual_block=edge_updating()
@@ -160,10 +178,10 @@ def model_fn(graph_tensor_spec: tfgnn.GraphTensorSpec):
         )(graph)'''
 
     #readout layers
-    output = tfgnn.keras.layers.GraphUpdate(
+    graph = tfgnn.keras.layers.GraphUpdate(
         node_sets={"atom": tfgnn.keras.layers.NodeSetUpdate(
             {"bond": tfgnn.keras.layers.Pool(tag=tfgnn.TARGET, reduce_type="sum")},
-            next_state=tfgnn.keras.layers.NextStateFromConcat(dense(256, activation="relu"))
+            next_state=tfgnn.keras.layers.NextStateFromConcat(readout_layers())
         )}
     )(graph)
     #output = graph
@@ -174,18 +192,7 @@ def model_fn(graph_tensor_spec: tfgnn.GraphTensorSpec):
     logits = tf.keras.layers.Dense(128, activation="relu")(logits)
     output = tf.keras.layers.Dense(1)(logits)'''
     
-    return tf.keras.Model(inputs=[inputs], outputs=[output])
-
-def decode_fn(record_bytes):
-    graph = tfgnn.parse_example(
-        graph_tensor_spec, record_bytes, validate=True)
-
-    # extract label from node and remove from input graph
-    label = tfgnn.keras.layers.StructuredReadout("shift")(graph)
-    graph = graph.remove_features(node_sets={"_readout": ["shift"]})
-
-    return graph, label
-
+    return tf.keras.Model(inputs=[inputs], outputs=[graph])
 
 if __name__ == "__main__":
     path = "/home/s3665828/Documents/Masters_Thesis/repo/CASCADE/code/predicting_model/Shift/DFTNN/"
@@ -217,6 +224,7 @@ if __name__ == "__main__":
     log_dir = path + "logs/fit/" + datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
     tensorboard_callback = tf.keras.callbacks.TensorBoard(log_dir=log_dir, histogram_freq=1)
     checkpoint = tf.keras.callbacks.ModelCheckpoint(filepath, save_best_only=True, period=1, verbose=1)
+    gradient_logger = GradientLogger(log_dir=log_dir)
 
     trainer = runner.KerasTrainer(
         strategy=tf.distribute.MirroredStrategy(),

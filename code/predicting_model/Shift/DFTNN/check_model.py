@@ -86,6 +86,7 @@ if __name__ == "__main__":
     #graph = tfgnn.keras.layers.MapFeatures(node_sets_fn=set_initial_node_state, edge_sets_fn=set_initial_edge_state)(graph)
     print(graph)
     print(graph.node_sets["_readout"].__getitem__("shift"))
+    print(graph.edge_sets["bond"])
     print(graph.edge_sets["_readout/shift"])
     print(graph.edge_sets["_readout/shift"].adjacency.source)
     print(graph.edge_sets["_readout/shift"].adjacency.target)
@@ -101,4 +102,4 @@ if __name__ == "__main__":
     output_dict = signature_fn(**input_dict)
     logits = output_dict["shifts"]
 
-    #print(logits)
+    print(logits)
