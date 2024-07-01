@@ -3,6 +3,7 @@ import numpy as np
 import tensorflow as tf
 import tensorflow_gnn as tfgnn
 from tensorflow_gnn import runner
+from tensorflow_gnn.models import mt_albis
 import pandas as pd
 import pickle
 import sys
@@ -147,22 +148,33 @@ def model_fn(graph_tensor_spec: tfgnn.GraphTensorSpec):
     #preprocessing layers
     graph = inputs = tf.keras.layers.Input(type_spec=graph_tensor_spec)
     graph = tfgnn.keras.layers.MapFeatures(node_sets_fn=set_initial_node_state, edge_sets_fn=set_initial_edge_state)(graph)
-    labels = tf.keras.backend.print_tensor(graph.node_sets["_readout"].__getitem__("shift"), summarize=-1)
+    #labels = tf.keras.backend.print_tensor(graph.node_sets["_readout"].__getitem__("shift"), summarize=-1)
     # Message passing layers
     # First, the edges are updated according to the layers in edge_updating
     # Then, the updated edge states are pooled to the node states (hadamard product + element-wise sum)
     # Finally, the pooled edge states are updated according to the layers in node_updating
 
     for _ in range(3):
-        graph = tfgnn.keras.layers.GraphUpdate(
+        graph = mt_albis.MtAlbisGraphUpdate(
+            units=256,
+            message_dim=128,
+            receiver_tag=tfgnn.SOURCE,
+            # More hyperparameters like edge_dropout_rate can be added here.
+        )(graph)
+        '''graph = tfgnn.keras.layers.GraphUpdate(
             node_sets={"atom": tfgnn.keras.layers.NodeSetUpdate(
-                {"bond": tfgnn.keras.layers.Pool(tag=tfgnn.TARGET, edge_set_name="bond", reduce_type="sum")},
-                next_state=tfgnn.keras.layers.ResidualNextState(node_updating())
-            )},
+                {"bond": tfgnn.keras.layers.SimpleConv(
+                    message_fn = dense(512, activation="relu"), 
+                    reduce_type="sum", 
+                    receiver_tag=tfgnn.TARGET)},
+                next_state=tfgnn.keras.layers.ResidualNextState(dense(256, activation="relu"))
+            )}
+        )(graph)'''
+        '''},
             edge_sets={"bond": tfgnn.keras.layers.EdgeSetUpdate(
                 next_state=tfgnn.keras.layers.ResidualNextState(edge_updating())
             )}
-        )(graph)
+        )(graph)'''
     '''graph = tfgnn.keras.layers.GraphUpdate(
             edge_sets={"bond": tfgnn.keras.layers.EdgeSetUpdate(
                     next_state=tfgnn.keras.layers.ResidualNextState(
@@ -178,12 +190,26 @@ def model_fn(graph_tensor_spec: tfgnn.GraphTensorSpec):
         )(graph)'''
 
     #readout layers
+    '''graph = tfgnn.keras.layers.GraphUpdate(
+        node_sets={"atom": tfgnn.keras.layers.NodeSetUpdate(
+            {"bond": tfgnn.keras.layers.Pool(tag=tfgnn.TARGET, reduce_type="sum")},
+            next_state=tfgnn.keras.layers.NextStateFromConcat(tf.keras.layers.Dense(128))
+        )}
+    )(graph)
+
     graph = tfgnn.keras.layers.GraphUpdate(
         node_sets={"atom": tfgnn.keras.layers.NodeSetUpdate(
             {"bond": tfgnn.keras.layers.Pool(tag=tfgnn.TARGET, reduce_type="sum")},
-            next_state=tfgnn.keras.layers.NextStateFromConcat(readout_layers())
+            next_state=tfgnn.keras.layers.NextStateFromConcat(tf.keras.layers.Dense(64))
         )}
     )(graph)
+
+    graph = tfgnn.keras.layers.GraphUpdate(
+        node_sets={"atom": tfgnn.keras.layers.NodeSetUpdate(
+            {"bond": tfgnn.keras.layers.Pool(tag=tfgnn.TARGET, reduce_type="sum")},
+            next_state=tfgnn.keras.layers.NextStateFromConcat(tf.keras.layers.Dense(1))
+        )}
+    )(graph)'''
     #output = graph
 
     '''readout_features = tfgnn.keras.layers.StructuredReadout("shift")(graph)
