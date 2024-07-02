@@ -158,7 +158,12 @@ def model_fn(graph_tensor_spec: tfgnn.GraphTensorSpec):
         graph = mt_albis.MtAlbisGraphUpdate(
             units=256,
             message_dim=128,
-            receiver_tag=tfgnn.SOURCE,
+            receiver_tag=tfgnn.TARGET,
+            simple_conv_reduce_type="mean|sum",
+            state_dropout_rate=0.2,
+            l2_regularization=1e-5,
+            normalization_type="layer",
+            next_state_type="residual",
             # More hyperparameters like edge_dropout_rate can be added here.
         )(graph)
         '''graph = tfgnn.keras.layers.GraphUpdate(
@@ -224,7 +229,7 @@ if __name__ == "__main__":
     path = "/home/s3665828/Documents/Masters_Thesis/repo/CASCADE/code/predicting_model/Shift/DFTNN/"
     batch_size = 32
     initial_learning_rate = 5E-4
-    epochs = 5
+    epochs = 10
     epoch_divisor = 1
 
     train_ds_provider = runner.TFRecordDatasetProvider(filenames=["data/own_data/shift_train.tfrecords"])
