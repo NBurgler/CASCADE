@@ -2,47 +2,10 @@ import os
 import numpy as np
 import tensorflow as tf
 import tensorflow_gnn as tfgnn
-from tensorflow_gnn import runner
-from tensorflow_gnn.models import mt_albis
-import pandas as pd
-import pickle
-import sys
-import functools
 import matplotlib.pyplot as plt
-import datetime
 
-import wandb
-from wandb.keras import WandbCallback
+os.chdir("C:/Users/niels/Documents/repo/CASCADE")
 
-'''wandb.init(
-        project="nmr-prediction",
-        dir="/home/s3665828/Documents/Masters_Thesis/repo/CASCADE/code/predicting_model/H/DFTNN",
-        config={
-        "learning_rate": 5E-4,
-        "dataset": "cascade",
-        "epochs": 10,
-        "setting": "tfgnn",
-    }
-)'''
-
-sys.path.append('code/predicting_model')
-
-class GradientLogger(tf.keras.callbacks.Callback):
-    def __init__(self, log_dir):
-        super(GradientLogger, self).__init__()
-        self.log_dir = log_dir
-        self.writer = tf.summary.create_file_writer(log_dir)
-
-    def on_epoch_end(self, epoch, logs=None):
-        with self.writer.as_default():
-            for layer in self.model.layers:
-                if hasattr(layer, 'trainable_weights'):
-                    for weight in layer.trainable_weights:
-                        gradients = self.model.optimizer.get_gradients(self.model.total_loss, weight)
-                        for grad, var in zip(gradients, self.model.trainable_weights):
-                            tf.summary.histogram(var.name + '/gradients', grad, step=epoch)
-            self.writer.flush()
-    
 def rbf_expansion(distances, mu=0, delta=0.1, kmax=256):
     k = np.arange(0, kmax)
     logits = -(tf.expand_dims(distances, 1) - (-mu + delta * k))**2 / delta
@@ -93,7 +56,7 @@ def set_initial_node_state(node_set, *, node_set_name):
     concatenated_embedding = tf.keras.layers.Concatenate()([atom_num_embedding, chiral_tag_embedding,
                                                             hybridization_embedding, numerical_embedding])
     #concatenated_embedding = tf.keras.backend.print_tensor(concatenated_embedding)
-    return tf.keras.layers.Dense(256, name="node_init")(concatenated_embedding)
+    return concatenated_embedding
 
 def set_initial_edge_state(edge_set, *, edge_set_name):
     distance = tf.keras.layers.Reshape((-1,))(edge_set["distance"])
@@ -103,70 +66,35 @@ def set_initial_edge_state(edge_set, *, edge_set_name):
 
     #rbf_distance = tf.keras.backend.print_tensor(rbf_distance, summarize=-1)
     # TODO: add other features
+    #distance = tf.keras.backend.print_tensor(distance, summarize=-1)
     edge_embedding = tf.keras.layers.Dense(256, name="edge_init")(rbf_distance)
     #edge_embedding = tf.keras.backend.print_tensor(edge_embedding, summarize=-1)
-    return rbf_distance
-    
-def dense(units, activation=None):
-    """A Dense layer with regularization (L2 and Dropout)."""
-    l2_regularization = 5e-4
-    dropout_rate = 0.5
-    regularizer = tf.keras.regularizers.l2(l2_regularization)
-    return tf.keras.Sequential([
-        tf.keras.layers.Dense(
-            units,
-            activation=activation,
-            kernel_regularizer=regularizer,
-            bias_regularizer=regularizer,
-            kernel_initializer=tf.keras.initializers.HeNormal(),
-            bias_initializer=tf.keras.initializers.Zeros()),
-        tf.keras.layers.Dropout(dropout_rate)
-    ])
+    return edge_embedding
 
-def edge_updating():
-    return tf.keras.Sequential([
-        dense(512, activation="relu"),
-        dense(256),
-        dense(256, activation="relu"),
-        dense(256, activation="relu")])
+def _build_model(graph_tensor_spec):
+    input_graph = tf.keras.layers.Input(type_spec=graph_tensor_spec)
+    #graph = input_graph.merge_batch_to_components()
 
+    graph = tfgnn.keras.layers.MapFeatures(node_sets_fn=set_initial_node_state, edge_sets_fn=set_initial_edge_state)(input_graph)
 
-def node_updating():
-    return tf.keras.Sequential([
-        dense(256, activation="relu"),
-        dense(256)])
-
-def readout_layers():
-    return tf.keras.Sequential([
-        dense(256, activation="relu"),
-        dense(256, activation="relu"),
-        dense(128, activation="relu"),
-        dense(1)])
-
-
-def model_fn(graph_tensor_spec: tfgnn.GraphTensorSpec):
-    #preprocessing layers
-    graph = inputs = tf.keras.layers.Input(type_spec=graph_tensor_spec)
-    graph = tfgnn.keras.layers.MapFeatures(node_sets_fn=set_initial_node_state, edge_sets_fn=set_initial_edge_state)(graph)
-    #labels = tf.keras.backend.print_tensor(graph.node_sets["_readout"].__getitem__("shift"), summarize=-1)
-    # Message passing layers
-    # First, the edges are updated according to the layers in edge_updating
-    # Then, the updated edge states are pooled to the node states (hadamard product + element-wise sum)
-    # Finally, the pooled edge states are updated according to the layers in node_updating
+    def dense(units, activation=None):
+        """A Dense layer with regularization (L2 and Dropout)."""
+        l2_regularization = 5e-4
+        dropout_rate = 0.5
+        regularizer = tf.keras.regularizers.l2(l2_regularization)
+        return tf.keras.Sequential([
+            tf.keras.layers.Dense(
+                units,
+                activation=activation,
+                kernel_regularizer=regularizer,
+                bias_regularizer=regularizer,
+                kernel_initializer=tf.keras.initializers.HeNormal(),
+                bias_initializer=tf.keras.initializers.Zeros()),
+            tf.keras.layers.Dropout(dropout_rate)
+        ])
 
     for _ in range(3):
-        graph = mt_albis.MtAlbisGraphUpdate(
-            units=256,
-            message_dim=128,
-            receiver_tag=tfgnn.TARGET,
-            simple_conv_reduce_type="mean|sum",
-            state_dropout_rate=0.2,
-            l2_regularization=1e-5,
-            normalization_type="layer",
-            next_state_type="residual",
-            # More hyperparameters like edge_dropout_rate can be added here.
-        )(graph)
-        '''graph = tfgnn.keras.layers.GraphUpdate(
+        graph = tfgnn.keras.layers.GraphUpdate(
             node_sets={"atom": tfgnn.keras.layers.NodeSetUpdate(
                 {"bond": tfgnn.keras.layers.SimpleConv(
                     message_fn = dense(512, activation="relu"), 
@@ -174,112 +102,69 @@ def model_fn(graph_tensor_spec: tfgnn.GraphTensorSpec):
                     receiver_tag=tfgnn.TARGET)},
                 next_state=tfgnn.keras.layers.ResidualNextState(dense(256, activation="relu"))
             )}
-        )(graph)'''
-        '''},
-            edge_sets={"bond": tfgnn.keras.layers.EdgeSetUpdate(
-                next_state=tfgnn.keras.layers.ResidualNextState(edge_updating())
-            )}
-        )(graph)'''
-    '''graph = tfgnn.keras.layers.GraphUpdate(
-            edge_sets={"bond": tfgnn.keras.layers.EdgeSetUpdate(
-                    next_state=tfgnn.keras.layers.ResidualNextState(
-                        residual_block=edge_updating()
-                )
-            )},
-            node_sets={"atom": tfgnn.keras.layers.NodeSetUpdate(
-                {"bond": tfgnn.keras.layers.Pool(tag=tfgnn.TARGET, reduce_type="prod|sum")},
-                next_state=tfgnn.keras.layers.ResidualNextState(
-                    residual_block=node_updating()
-                )
-            )}
-        )(graph)'''
+        )(graph)
 
-    #readout layers
-    '''graph = tfgnn.keras.layers.GraphUpdate(
-        node_sets={"atom": tfgnn.keras.layers.NodeSetUpdate(
-            {"bond": tfgnn.keras.layers.Pool(tag=tfgnn.TARGET, reduce_type="sum")},
-            next_state=tfgnn.keras.layers.NextStateFromConcat(tf.keras.layers.Dense(128))
-        )}
-    )(graph)
+    readout_features = tfgnn.keras.layers.StructuredReadout("shift")(graph)
+    logits = tf.keras.layers.Dense(1)(readout_features)
 
-    graph = tfgnn.keras.layers.GraphUpdate(
-        node_sets={"atom": tfgnn.keras.layers.NodeSetUpdate(
-            {"bond": tfgnn.keras.layers.Pool(tag=tfgnn.TARGET, reduce_type="sum")},
-            next_state=tfgnn.keras.layers.NextStateFromConcat(tf.keras.layers.Dense(64))
-        )}
-    )(graph)
+    return tf.keras.Model(inputs=[input_graph], outputs=[logits])
 
-    graph = tfgnn.keras.layers.GraphUpdate(
-        node_sets={"atom": tfgnn.keras.layers.NodeSetUpdate(
-            {"bond": tfgnn.keras.layers.Pool(tag=tfgnn.TARGET, reduce_type="sum")},
-            next_state=tfgnn.keras.layers.NextStateFromConcat(tf.keras.layers.Dense(1))
-        )}
-    )(graph)'''
-    #output = graph
-
-    '''readout_features = tfgnn.keras.layers.StructuredReadout("shift")(graph)
-    logits = tf.keras.layers.Dense(256, activation="relu")(readout_features)
-    logits = tf.keras.layers.Dense(256, activation="relu")(logits)
-    logits = tf.keras.layers.Dense(128, activation="relu")(logits)
-    output = tf.keras.layers.Dense(1)(logits)'''
-    
-    return tf.keras.Model(inputs=[inputs], outputs=[graph])
 
 if __name__ == "__main__":
-    path = "/home/s3665828/Documents/Masters_Thesis/repo/CASCADE/code/predicting_model/Shift/DFTNN/"
     batch_size = 32
     initial_learning_rate = 5E-4
-    epochs = 10
+    epochs = 5
     epoch_divisor = 1
 
-    train_ds_provider = runner.TFRecordDatasetProvider(filenames=["data/own_data/shift_train.tfrecords"])
-    test_ds_provider = runner.TFRecordDatasetProvider(filenames=["data/own_data/shift_test.tfrecords"])
-    valid_ds_provider = runner.TFRecordDatasetProvider(filenames=["data/own_data/shift_valid.tfrecords"])
-
-    graph_schema = tfgnn.read_schema("code/predicting_model/GraphSchema.pbtxt")
-    graph_tensor_spec = tfgnn.create_graph_spec_from_schema_pb(graph_schema)
+    train_path = os.path.join(os.getcwd(), 'data\own_data\shift_train.tfrecords')
+    val_path = os.path.join(os.getcwd(), 'data\own_data\shift_valid.tfrecords')
 
     train_size = 63565
     valid_size = 13622
     test_size = 13622
 
-    task = runner.NodeMeanAbsoluteError("shift", label_feature_name="shift")
     steps_per_epoch = train_size // batch_size // epoch_divisor
     validation_steps = valid_size // batch_size // epoch_divisor
     learning_rate = tf.keras.optimizers.schedules.ExponentialDecay(
         initial_learning_rate, decay_steps=100000, decay_rate=0.96, staircase=True
     )
-    optimizer_fn = functools.partial(tf.keras.optimizers.Adam, learning_rate=learning_rate)
 
-    filepath = path + "gnn/models/"
-    log_dir = path + "logs/fit/" + datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
-    tensorboard_callback = tf.keras.callbacks.TensorBoard(log_dir=log_dir, histogram_freq=1)
-    checkpoint = tf.keras.callbacks.ModelCheckpoint(filepath, save_best_only=True, period=1, verbose=1)
-    gradient_logger = GradientLogger(log_dir=log_dir)
+    train_ds = tf.data.TFRecordDataset([train_path])
+    val_ds = tf.data.TFRecordDataset([val_path])
+    train_ds = train_ds.batch(batch_size=batch_size).repeat()
+    val_ds = val_ds.batch(batch_size=batch_size)
 
-    trainer = runner.KerasTrainer(
-        strategy=tf.distribute.MirroredStrategy(),
-        model_dir=path + "tmp/gnn_model/",
-        callbacks=[tensorboard_callback, checkpoint],
-        steps_per_epoch=steps_per_epoch,
-        validation_steps=validation_steps,
-        restore_best_weights=False,
-        checkpoint_every_n_steps="never",
-        summarize_every_n_steps="never",
-        backup_and_restore=False,
-    )
+    graph_schema = tfgnn.read_schema("code/predicting_model/GraphSchema.pbtxt")
+    graph_tensor_spec = tfgnn.create_graph_spec_from_schema_pb(graph_schema)
+    train_ds = train_ds.map(tfgnn.keras.layers.ParseExample(graph_tensor_spec))
+    val_ds = val_ds.map(tfgnn.keras.layers.ParseExample(graph_tensor_spec))
+    preproc_input_spec = train_ds.element_spec
 
-    model_exporter = runner.KerasModelExporter(output_names="shifts")
+    # preprocessing
+    preproc_input = tf.keras.layers.Input(type_spec=preproc_input_spec)
+    graph = preproc_input
+    graph = graph.merge_batch_to_components()
+    labels = tfgnn.keras.layers.Readout(node_set_name="_readout",
+                                    feature_name="shift")(graph)
+    graph = graph.remove_features(node_sets={"_readout": ["shift"]})
+    preproc_model = tf.keras.Model(preproc_input, (graph, labels))
+    train_ds = train_ds.map(preproc_model)
+    val_ds = val_ds.map(preproc_model)
 
-    runner.run(
-        gtspec=graph_tensor_spec,
-        train_ds_provider=train_ds_provider,
-        valid_ds_provider=valid_ds_provider,
-        model_fn=model_fn,
-        optimizer_fn=optimizer_fn,
-        trainer=trainer,
-        task=task,
-        global_batch_size=batch_size,
-        epochs=epochs,
-        model_exporters=[model_exporter]
-    )
+    # model
+    model_input_spec, _ = train_ds.element_spec
+    model = _build_model(model_input_spec)
+
+    loss = tf.keras.losses.MeanAbsoluteError()
+    metrics = [tf.keras.losses.MeanAbsoluteError()]
+
+    model.compile(tf.keras.optimizers.Adam(), loss=loss, metrics=metrics)
+    model.summary()
+
+    history = model.fit(train_ds, steps_per_epoch=steps_per_epoch, validation_steps=validation_steps, epochs=epochs, validation_data=val_ds)
+    #history = model.fit(train_ds, steps_per_epoch=steps_per_epoch, validation_steps=validation_steps, epochs=epochs, validation_data=val_ds)
+
+    for k, hist in history.history.items():
+        plt.plot(hist)
+        plt.title(k)
+        plt.show()
