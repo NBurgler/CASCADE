@@ -3,8 +3,7 @@ import numpy as np
 import tensorflow as tf
 import tensorflow_gnn as tfgnn
 import matplotlib.pyplot as plt
-
-os.chdir("C:/Users/niels/Documents/repo/CASCADE")
+import datetime
 
 def rbf_expansion(distances, mu=0, delta=0.1, kmax=256):
     k = np.arange(0, kmax)
@@ -111,6 +110,7 @@ def _build_model(graph_tensor_spec):
 
 
 if __name__ == "__main__":
+    os.chdir("C:/Users/niels/Documents/repo/CASCADE")
     batch_size = 32
     initial_learning_rate = 5E-4
     epochs = 5
@@ -161,7 +161,12 @@ if __name__ == "__main__":
     model.compile(tf.keras.optimizers.Adam(), loss=loss, metrics=metrics)
     model.summary()
 
-    history = model.fit(train_ds, steps_per_epoch=steps_per_epoch, validation_steps=validation_steps, epochs=epochs, validation_data=val_ds)
+    path = "C:/Users/niels/Documents/repo/CASCADE/code/predicting_model/Shift/DFTNN/"
+    filepath = path + "gnn/models/"
+    log_dir = path + "logs/fit/" + datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
+    tensorboard_callback = tf.keras.callbacks.TensorBoard(log_dir=log_dir, histogram_freq=1)
+    checkpoint = tf.keras.callbacks.ModelCheckpoint(filepath, save_best_only=True, period=1, verbose=1)
+    history = model.fit(train_ds, steps_per_epoch=steps_per_epoch, validation_steps=validation_steps, epochs=epochs, validation_data=val_ds, callbacks=[tensorboard_callback, checkpoint]) 
     #history = model.fit(train_ds, steps_per_epoch=steps_per_epoch, validation_steps=validation_steps, epochs=epochs, validation_data=val_ds)
 
     for k, hist in history.history.items():
