@@ -46,12 +46,11 @@ def processData(filepath):
     mol_id = 0
 
     mol_dict = {"mol_id":[], "smiles":[], "n_atoms":[], "n_bonds":[], "n_pro":[]}
-    atom_dict = {"mol_id":[], "atom_symbol":[], "chiral_tag":[], "degree":[], "exp_valence":[], 
-                 "formal_charge":[], "hybridization":[], "imp_valence":[], "is_aromatic":[], 
-                 "no_implicit":[], "num_exp_H": [], "num_imp_H":[], "num_radical_electrons":[],
-                  "total_degree":[], "total_num_H":[], "total_valence":[], "Shift":[]}
-    bond_dict = {"mol_id":[], "bond_type":[], "distance":[], "is_conjugated":[], "stereo":[],
-                  "source":[], "target":[]}
+    atom_dict = {"mol_id":[], "atom_symbol":[], "chiral_tag":[], "degree":[], 
+                 "formal_charge":[], "hybridization":[], "is_aromatic":[], 
+                 "no_implicit":[], "num_Hs":[], "valence":[], "Shift":[]}
+    bond_dict = {"mol_id":[], "bond_type":[], "distance":[], "is_conjugated":[], 
+                 "stereo":[], "source":[], "target":[]}
 
     for sample in tqdm(samples):
         sampleSplit = sample.split("\n")
@@ -75,8 +74,8 @@ def processData(filepath):
         mol_dict["n_pro"].append(n_atoms - mol.GetNumHeavyAtoms())
 
         iter_H = 0
-        mol = Chem.AddHs(mol)
         mol, embedding_found = findEmbedding(mol)
+        mol = Chem.AddHs(mol, addCoords=True)
         if (embedding_found):
             try:
                 distance_matrix = Chem.Get3DDistanceMatrix(mol)
@@ -89,16 +88,13 @@ def processData(filepath):
                 atom_symbol = atom.GetSymbol()
                 atom_dict["atom_symbol"].append(atom_symbol)
                 atom_dict["chiral_tag"].append(atom.GetChiralTag())
-                atom_dict["degree"].append(atom.GetDegree())
-                atom_dict["exp_valence"].append(atom.GetExplicitValence())
+                atom_dict["degree"].append(atom.GetTotalDegree())
                 atom_dict["formal_charge"].append(atom.GetFormalCharge())
                 atom_dict["hybridization"].append(atom.GetHybridization())
-                atom_dict["imp_valence"].append(atom.GetImplicitValence())
                 atom_dict["is_aromatic"].append(atom.GetIsAromatic())
                 atom_dict["no_implicit"].append(atom.GetNoImplicit())
-                atom_dict["num_exp_H"].append(atom.GetNumExplicitHs())
-                atom_dict["num_imp_H"].append(atom.GetNumImplicitHs())
-                atom_dict["num_radical_electrons"].append(atom.GetNumRadicalElectrons())
+                atom_dict["valence"].append(atom.GetTotalValence())
+                atom_dict["num_Hs"].append(atom.GetTotalNumHs(includeNeighbors=True))
                 
                 if (atom_symbol == "H"):
                     atomSplit = sampleSplit[3+iter_H].split(",")
@@ -107,10 +103,6 @@ def processData(filepath):
                     iter_H += 1
                 else:
                     atom_dict["Shift"].append(0.0)  #0.0 shift for non-H atoms
-
-                atom_dict["total_degree"].append(atom.GetTotalDegree())
-                atom_dict["total_num_H"].append(atom.GetTotalNumHs())
-                atom_dict["total_valence"].append(atom.GetTotalValence())
 
             for n, bond in enumerate(mol.GetBonds()):
                 bond_dict["mol_id"].append(mol_id)
@@ -134,9 +126,9 @@ def processData(filepath):
     print(atom_df)
     print(bond_df)
 
-    mol_df.to_csv("code/predicting_model/Shift/DFTNN/own_data_mol.csv.gz", compression='gzip')
-    atom_df.to_csv("code/predicting_model/Shift/DFTNN/own_data_atom.csv.gz", compression='gzip')
-    bond_df.to_csv("code/predicting_model/Shift/DFTNN/own_data_bond.csv.gz", compression='gzip')
+    mol_df.to_csv("code/predicting_model/Shift/DFTNN/h2o_mol.csv.gz", compression='gzip')
+    atom_df.to_csv("code/predicting_model/Shift/DFTNN/h2o_atom.csv.gz", compression='gzip')
+    bond_df.to_csv("code/predicting_model/Shift/DFTNN/h2o_bond.csv.gz", compression='gzip')
 
 
 def one_hot_encode_atoms(atom_symbols):
@@ -171,18 +163,12 @@ def create_graph_tensor(mol_data, atom_data, bond_data):
                 features = {"atom_num": atom_nums,
                             "chiral_tag": chiral_tags,
                             "degree": atom_data["degree"],
-                            "explicit_valence": atom_data["exp_valence"],
                             "formal_charge": atom_data["formal_charge"],
                             "hybridization": hybridizations,
-                            "implicit_valence": atom_data["imp_valence"],
                             "is_aromatic": atom_data["is_aromatic"].astype(int),
                             "no_implicit": atom_data["no_implicit"].astype(int),
-                            "num_explicit_Hs": atom_data["num_exp_H"],
-                            "num_implicit_Hs": atom_data["num_imp_H"],
-                            "num_radical_electrons": atom_data["num_radical_electrons"],
-                            "total_degree": atom_data["total_degree"],
-                            "total_num_Hs": atom_data["total_num_H"],
-                            "total_valence": atom_data["total_valence"]}
+                            "num_Hs": atom_data["num_Hs"],
+                            "valence": atom_data["valence"]}
             ),
             "_readout": tfgnn.NodeSet.from_fields(
                 sizes = mol_data["n_pro"],
@@ -215,12 +201,12 @@ def create_graph_tensor(mol_data, atom_data, bond_data):
 
 if __name__ == "__main__":
     # create dataframes if they do not exist yet
-    if not os.path.isfile("code/predicting_model/Shift/DFTNN/own_data_mol.csv.gz"):
-        processData('data/own_data/cleaned_full_dataset.txt')
+    if not os.path.isfile("code/predicting_model/Shift/DFTNN/h2o_mol.csv.gz"):
+        processData('data/own_data/h2o.txt')
 
-    mol_df = pd.read_csv("code/predicting_model/Shift/DFTNN/own_data_mol.csv.gz", index_col=0)
-    atom_df = pd.read_csv("code/predicting_model/Shift/DFTNN/own_data_atom.csv.gz", index_col=0)
-    bond_df = pd.read_csv("code/predicting_model/Shift/DFTNN/own_data_bond.csv.gz", index_col=0)
+    mol_df = pd.read_csv("code/predicting_model/Shift/DFTNN/h2o_mol.csv.gz", index_col=0)
+    atom_df = pd.read_csv("code/predicting_model/Shift/DFTNN/h2o_atom.csv.gz", index_col=0)
+    bond_df = pd.read_csv("code/predicting_model/Shift/DFTNN/h2o_bond.csv.gz", index_col=0)
 
     mol_df = mol_df.sample(frac=1)  #shuffle
 
@@ -230,9 +216,9 @@ if __name__ == "__main__":
     #test_data = tf.io.TFRecordWriter("data/own_data/shift_test.tfrecords.gz", options=options)
     #valid_data = tf.io.TFRecordWriter("data/own_data/shift_valid.tfrecords.gz", options=options)
 
-    train_data = tf.io.TFRecordWriter("data/own_data/shift_train.tfrecords")
-    test_data = tf.io.TFRecordWriter("data/own_data/shift_test.tfrecords")
-    valid_data = tf.io.TFRecordWriter("data/own_data/shift_valid.tfrecords")
+    train_data = tf.io.TFRecordWriter("data/own_data/h2o_train.tfrecords")
+    test_data = tf.io.TFRecordWriter("data/own_data/h2o_test.tfrecords")
+    valid_data = tf.io.TFRecordWriter("data/own_data/h2o_valid.tfrecords")
 
     total = len(mol_df)
 

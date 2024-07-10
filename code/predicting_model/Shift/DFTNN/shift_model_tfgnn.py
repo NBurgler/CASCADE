@@ -5,6 +5,22 @@ import tensorflow_gnn as tfgnn
 import matplotlib.pyplot as plt
 import datetime
 
+def node_set_preprocesing(node_set, *, node_set_name):
+    features = node_set.get_features_dict()
+
+    features["degree"] = tf.keras.layers.Embedding(8, 4)
+    features["explicit_valence"] = tf.keras.layers.Embedding(8, 4)
+    features["formal_charge"] = tf.keras.embedding()
+    features["implicit_valence"]
+    features["num_explicit_hs"]
+    features["num_implicit_hs"]
+
+    return features
+
+
+def edge_set_preprocesing(edge_set, *, edge_set_name):
+    features = edge_set.get_features_dict()
+
 def rbf_expansion(distances, mu=0, delta=0.1, kmax=256):
     k = np.arange(0, kmax)
     logits = -(tf.expand_dims(distances, 1) - (-mu + delta * k))**2 / delta
@@ -15,6 +31,12 @@ def set_initial_node_state(node_set, *, node_set_name):
     atom_num_embedding = tf.keras.layers.Dense(64, name="atom_num_embedding")(node_set["atom_num"])
     chiral_tag_embedding = tf.keras.layers.Dense(64, name="chiral_tag_embedding")(node_set["chiral_tag"])
     hybridization_embedding = tf.keras.layers.Dense(64, name="hybridization_embedding")(node_set["hybridization"])
+    degree_embedding = tf.keras.layers.Embedding(3, 1, name="degree_embedding")(node_set["degree"])
+    formal_charge_embedding = tf.keras.layers.Embedding(2, 1, name="formal_charge_embedding")(node_set["formal_charge"])
+    is_aromatic_embedding = tf.keras.layers.Embedding(2, 1, name="is_aromatic_embedding")(node_set["is_aromatic"])
+    no_implicit_embedding = tf.keras.layers.Embedding(2, 1, name="no_implicit_embedding")(node_set["no_implicit"])
+    num_Hs_embedding = tf.keras.layers.Embedding(3, 1, name="num_Hs_embedding")(node_set["num_Hs"])
+    valence_embedding = tf.keras.layers.Embedding(3, 1, name="valence_embedding")(node_set["valence"])
 
     # other numerical features are first reshaped...
     '''degree = tf.keras.layers.Reshape((-1, 1))(node_set["degree"])
@@ -30,32 +52,25 @@ def set_initial_node_state(node_set, *, node_set_name):
     total_num_Hs = tf.keras.layers.Reshape((-1, 1))(node_set["total_num_Hs"])
     total_valence = tf.keras.layers.Reshape((-1, 1))(node_set["total_valence"])'''
 
-    degree = tf.keras.layers.Reshape((-1,))(node_set["degree"])
-    explicit_valence = tf.keras.layers.Reshape((-1,))(node_set["explicit_valence"])
+    '''degree = tf.keras.layers.Reshape((-1,))(node_set["degree"])
     formal_charge = tf.keras.layers.Reshape((-1,))(node_set["formal_charge"])
-    implicit_valence = tf.keras.layers.Reshape((-1,))(node_set["implicit_valence"])
     is_aromatic = tf.keras.layers.Reshape((-1,))(node_set["is_aromatic"])
     no_implicit = tf.keras.layers.Reshape((-1,))(node_set["no_implicit"])
-    num_explicit_Hs = tf.keras.layers.Reshape((-1,))(node_set["num_explicit_Hs"])
-    num_implicit_Hs = tf.keras.layers.Reshape((-1,))(node_set["num_implicit_Hs"])
-    num_radical_electrons = tf.keras.layers.Reshape((-1,))(node_set["num_radical_electrons"])
-    total_degree = tf.keras.layers.Reshape((-1,))(node_set["total_degree"])
-    total_num_Hs = tf.keras.layers.Reshape((-1,))(node_set["total_num_Hs"])
-    total_valence = tf.keras.layers.Reshape((-1,))(node_set["total_valence"])
+    num_Hs = tf.keras.layers.Reshape((-1,))(node_set["num_Hs"])
+    valence = tf.keras.layers.Reshape((-1,))(node_set["valence"])'''
 
     # ... and then concatenated so that they can be embedded as well
-    numerical_features = tf.keras.layers.Concatenate(axis=-1)([degree, explicit_valence, formal_charge, implicit_valence, is_aromatic, no_implicit,
-                                                              num_explicit_Hs, num_implicit_Hs, num_radical_electrons, total_degree, total_num_Hs, 
-                                                              total_valence])
+    numerical_embedding = tf.keras.layers.Concatenate()([degree_embedding, formal_charge_embedding, is_aromatic_embedding, 
+                                                         no_implicit_embedding, num_Hs_embedding, valence_embedding])
     #numerical_features = tf.keras.backend.print_tensor(numerical_features, summarize=-1)
-    numerical_embedding = tf.keras.layers.Dense(64, name="numerical_embedding")(numerical_features)
+    #numerical_embedding = tf.keras.layers.Dense(64, name="numerical_embedding")(numerical_features)
     #numerical_embedding = tf.keras.backend.print_tensor(numerical_embedding, summarize=-1)
     
     # the one-hot and numerical embeddings are concatenated and fed to another dense layer
     concatenated_embedding = tf.keras.layers.Concatenate()([atom_num_embedding, chiral_tag_embedding,
                                                             hybridization_embedding, numerical_embedding])
     #concatenated_embedding = tf.keras.backend.print_tensor(concatenated_embedding)
-    return concatenated_embedding
+    return tf.keras.layers.Dense(256, name="numerical_embedding")(concatenated_embedding)
 
 def set_initial_edge_state(edge_set, *, edge_set_name):
     distance = tf.keras.layers.Reshape((-1,))(edge_set["distance"])
@@ -110,18 +125,23 @@ def _build_model(graph_tensor_spec):
 
 
 if __name__ == "__main__":
-    os.chdir("C:/Users/niels/Documents/repo/CASCADE")
-    batch_size = 32
+    path = "/home/s3665828/Documents/Masters_Thesis/repo/CASCADE/"
+    batch_size = 2
     initial_learning_rate = 5E-4
-    epochs = 5
+    epochs = 20
     epoch_divisor = 1
 
-    train_path = os.path.join(os.getcwd(), 'data\own_data\shift_train.tfrecords')
-    val_path = os.path.join(os.getcwd(), 'data\own_data\shift_valid.tfrecords')
+    train_path = path + "data/own_data/h2o_train.tfrecords"
+    val_path = path + "data/own_data/h2o_valid.tfrecords"
 
-    train_size = 63565
-    valid_size = 13622
-    test_size = 13622
+
+    train_size = 8
+    valid_size = 2
+    test_size = 2
+
+    #train_size = 63565
+    #valid_size = 13622
+    #test_size = 13622
 
     steps_per_epoch = train_size // batch_size // epoch_divisor
     validation_steps = valid_size // batch_size // epoch_divisor
@@ -161,15 +181,16 @@ if __name__ == "__main__":
     model.compile(tf.keras.optimizers.Adam(), loss=loss, metrics=metrics)
     model.summary()
 
-    path = "C:/Users/niels/Documents/repo/CASCADE/code/predicting_model/Shift/DFTNN/"
-    filepath = path + "gnn/models/"
-    log_dir = path + "logs/fit/" + datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
+    code_path = "/home/s3665828/Documents/Masters_Thesis/repo/CASCADE/code/predicting_model/Shift/DFTNN/"
+    filepath = code_path + "gnn/models/h2o_model/"
+    log_dir = code_path + "logs/fit/" + datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
     tensorboard_callback = tf.keras.callbacks.TensorBoard(log_dir=log_dir, histogram_freq=1)
     checkpoint = tf.keras.callbacks.ModelCheckpoint(filepath, save_best_only=True, period=1, verbose=1)
     history = model.fit(train_ds, steps_per_epoch=steps_per_epoch, validation_steps=validation_steps, epochs=epochs, validation_data=val_ds, callbacks=[tensorboard_callback, checkpoint]) 
-    #history = model.fit(train_ds, steps_per_epoch=steps_per_epoch, validation_steps=validation_steps, epochs=epochs, validation_data=val_ds)
+   
+    #for layer in model.layers: print(layer.get_config(), layer.get_weights())
 
-    for k, hist in history.history.items():
+    '''for k, hist in history.history.items():
         plt.plot(hist)
         plt.title(k)
-        plt.show()
+        plt.show()'''

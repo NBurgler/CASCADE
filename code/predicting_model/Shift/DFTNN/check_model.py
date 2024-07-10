@@ -3,6 +3,8 @@ import tensorflow as tf
 import tensorflow_gnn as tfgnn
 import itertools
 import pandas as pd
+from rdkit import Chem
+from rdkit.Chem import AllChem
 from tensorflow_gnn import runner
 
 def check_zero(input_graph):
@@ -66,19 +68,51 @@ def set_initial_edge_state(edge_set, *, edge_set_name):
     # TODO: add other features
     return tf.keras.layers.Dense(256, name="edge_init")(features['rbf_distance'])
 
+def check_data(ds, graph_spec):
+    dataset = ds.map(tfgnn.keras.layers.ParseSingleExample(graph_spec))
+    degree_tensor = tf.zeros([0], dtype="int64")
+    formal_charge_tensor = tf.zeros([0], dtype="int64")
+    is_aromatic_tensor = tf.zeros([0], dtype="int64")
+    no_implicit_tensor = tf.zeros([0], dtype="int64")
+    num_Hs_tensor = tf.zeros([0], dtype="int64")
+    valence_tensor = tf.zeros([0], dtype="int64")
+
+    for graph in dataset:
+        degree_tensor = tf.concat([degree_tensor, graph.node_sets["atom"].__getitem__("degree")], 0)
+        formal_charge_tensor = tf.concat([formal_charge_tensor, graph.node_sets["atom"].__getitem__("formal_charge")], 0)
+        is_aromatic_tensor = tf.concat([is_aromatic_tensor, graph.node_sets["atom"].__getitem__("is_aromatic")], 0)
+        no_implicit_tensor = tf.concat([no_implicit_tensor, graph.node_sets["atom"].__getitem__("no_implicit")], 0)
+        num_Hs_tensor = tf.concat([num_Hs_tensor, graph.node_sets["atom"].__getitem__("num_Hs")], 0)
+        valence_tensor = tf.concat([valence_tensor, graph.node_sets["atom"].__getitem__("valence")], 0)
+    
+    print(num_Hs_tensor)
+    print(valence_tensor)
+    print("_________CARDINALITY_________")
+    print("degree: " + str(len(tf.unique(degree_tensor).y)) + " (" + str(tf.unique(degree_tensor).y) + ")")
+    print("formal charge: " + str(len(tf.unique(formal_charge_tensor).y)) + " (" + str(tf.unique(formal_charge_tensor).y) + ")")
+    print("is aromatic: " + str(len(tf.unique(is_aromatic_tensor).y)) + " (" + str(tf.unique(is_aromatic_tensor).y) + ")")
+    print("no implicit: " + str(len(tf.unique(no_implicit_tensor).y)) + " (" + str(tf.unique(no_implicit_tensor).y) + ")")
+    print("num Hs: " + str(len(tf.unique(num_Hs_tensor).y)) + " (" + str(tf.unique(num_Hs_tensor).y) + ")")
+    print("valence: " + str(len(tf.unique(valence_tensor).y)) + " (" + str(tf.unique(valence_tensor).y) + ")")
+    print("_____________________________")
+
 
 if __name__ == "__main__":
     path = "/home/s3665828/Documents/Masters_Thesis/repo/CASCADE/code/predicting_model/Shift/DFTNN/"
 
     graph_schema = tfgnn.read_schema("code/predicting_model/GraphSchema.pbtxt")
     graph_spec = tfgnn.create_graph_spec_from_schema_pb(graph_schema)
-    model = tf.saved_model.load(path + "tmp/gnn_model/export")
+    model = tf.saved_model.load(path + "gnn/models/h2o_model")
     signature_fn = model.signatures[
         tf.saved_model.DEFAULT_SERVING_SIGNATURE_DEF_KEY]
 
     num_examples = 2
-    dataset_provider = runner.TFRecordDatasetProvider(filenames=["data/own_data/shift_train.tfrecords"])
-    dataset = dataset_provider.get_dataset(tf.distribute.InputContext())
+    #dataset = runner.TFRecordDataset(filenames=["data/own_data/shift_train.tfrecords"])
+    #dataset = dataset_provider.get_dataset(tf.distribute.InputContext())
+    dataset = tf.data.TFRecordDataset("data/own_data/h2o_train.tfrecords")
+    #dataset = dataset.batch(batch_size=1).repeat()
+
+    #check_data(dataset, graph_spec)
 
     example = next(iter(dataset.batch(1)))
     input_graph = tfgnn.parse_example(graph_spec, example)
@@ -92,9 +126,31 @@ if __name__ == "__main__":
     print(graph.edge_sets["_readout/shift"].adjacency.target)
     #check_zero(input_graph)
 
+    smiles="O"
+    mol = Chem.MolFromSmiles(smiles)
+    '''AllChem.EmbedMolecule(mol, useRandomCoords=True)
+    AllChem.MMFFOptimizeMolecule(mol)
+    Chem.rdMolTransforms.CanonicalizeMol(mol, normalizeCovar=True, ignoreHs=False)
+    distance_matrix = Chem.Get3DDistanceMatrix(mol)
+    print("_____________Normal_____________")
+    print(distance_matrix)
+    mol = Chem.AddHs(mol, addCoords=True)
+    distance_matrix = Chem.Get3DDistanceMatrix(mol)
+    print("_____________H_added_____________")
+    print(distance_matrix)'''
+
+    mol_with_h = Chem.MolFromSmiles(smiles)
+    mol_with_h = Chem.AddHs(mol_with_h)
+    '''AllChem.EmbedMolecule(mol_with_h, useRandomCoords=True)
+    AllChem.MMFFOptimizeMolecule(mol_with_h)
+    Chem.rdMolTransforms.CanonicalizeMol(mol_with_h, normalizeCovar=True, ignoreHs=False)
+    distance_matrix_h = Chem.Get3DDistanceMatrix(mol_with_h)
+    print("_____________H_at_start_____________")
+    print(distance_matrix_h)'''
+
     '''atom_data = pd.read_csv("code/predicting_model/Shift/DFTNN/own_data_atom.csv.gz", index_col=0)
     print(atom_data)
-    print(atom_data["Shift"])
+    print(atom_data["num_exp_H"])
     H_indices = atom_data.index[atom_data["atom_symbol"] == "H"].tolist()
     print(atom_data["Shift"][H_indices])'''
 
