@@ -32,7 +32,7 @@ def set_initial_edge_state(edge_set, *, edge_set_name):
     return tf.keras.layers.Dense(256)(tf.expand_dims(tf.keras.layers.Concatenate()([edge_set["bond_type"], edge_set["rbf_distance"]]), axis=1))
 
 if __name__ == "__main__":
-    data = tf.data.TFRecordDataset(["data/own_data/shift_train.tfrecords"])
+    data = tf.data.TFRecordDataset(["data/own_data/easy_train.tfrecords"])
     graph_schema = tfgnn.read_schema("code/predicting_model/GraphSchema.pbtxt")
     graph_tensor_spec = tfgnn.create_graph_spec_from_schema_pb(graph_schema)
 
@@ -44,5 +44,6 @@ if __name__ == "__main__":
 
     graph = tfgnn.keras.layers.MapFeatures(edge_sets_fn=edge_sets_fn)(graph)
     print(graph.edge_sets['bond'].__getitem__('rbf_distance'))
+    print(rbf_expansion_2(bond_df))
 
-    print(rbf_expansion_2(bond_df.loc[bond_df["mol_id"] == 21578]["distance"]))
+    #print(rbf_expansion_2(bond_df.loc[bond_df["mol_id"] == 21578]["distance"]))

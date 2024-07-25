@@ -89,7 +89,7 @@ def processData(filepath):
                 atom_dict["atom_symbol"].append(atom_symbol)
                 atom_dict["chiral_tag"].append(atom.GetChiralTag())
                 atom_dict["degree"].append(atom.GetTotalDegree())
-                atom_dict["formal_charge"].append(atom.GetFormalCharge())
+                atom_dict["formal_charge"].append(atom.GetFormalCharge() + 1)   # Now ranges from 0...2 instead of -1...1
                 atom_dict["hybridization"].append(atom.GetHybridization())
                 atom_dict["is_aromatic"].append(atom.GetIsAromatic())
                 atom_dict["no_implicit"].append(atom.GetNoImplicit())
@@ -99,14 +99,13 @@ def processData(filepath):
                 if (atom_symbol == "H"):
                     atomSplit = sampleSplit[3+iter_H].split(",")
                     atom_dict["Shift"].append(atomSplit[1])
-
                     iter_H += 1
                 else:
                     atom_dict["Shift"].append(0.0)  #0.0 shift for non-H atoms
 
             for n, bond in enumerate(mol.GetBonds()):
                 bond_dict["mol_id"].append(mol_id)
-                bond_dict["bond_type"].append(bond.GetBondTypeAsDouble())
+                bond_dict["bond_type"].append(bond.GetBondType())
 
                 bond_source = bond.GetBeginAtomIdx()
                 bond_target = bond.GetEndAtomIdx()
@@ -118,17 +117,23 @@ def processData(filepath):
 
             mol_id += 1
 
+    
+
     mol_df = pd.DataFrame.from_dict(mol_dict)
     atom_df = pd.DataFrame.from_dict(atom_dict)
     bond_df = pd.DataFrame.from_dict(bond_dict)
 
-    print(mol_df)
-    print(atom_df)
-    print(bond_df)
+    bond_df["norm_distance"] = (bond_df["distance"] - bond_df["distance"].mean())/bond_df["distance"].std()
+    '''print(bond_df["distance"].mean())
+    print(bond_df["distance"].std())
 
-    mol_df.to_csv("code/predicting_model/Shift/DFTNN/h2o_mol.csv.gz", compression='gzip')
-    atom_df.to_csv("code/predicting_model/Shift/DFTNN/h2o_atom.csv.gz", compression='gzip')
-    bond_df.to_csv("code/predicting_model/Shift/DFTNN/h2o_bond.csv.gz", compression='gzip')
+    print(mol_df)
+    print(atom_df.to_string())
+    print(bond_df.to_string())'''
+
+    mol_df.to_csv("code/predicting_model/Shift/DFTNN/own_data_mol.csv.gz", compression='gzip')
+    atom_df.to_csv("code/predicting_model/Shift/DFTNN/own_data_atom.csv.gz", compression='gzip')
+    bond_df.to_csv("code/predicting_model/Shift/DFTNN/own_data_bond.csv.gz", compression='gzip')
 
 
 def one_hot_encode_atoms(atom_symbols):
@@ -152,6 +157,7 @@ def create_graph_tensor(mol_data, atom_data, bond_data):
     chiral_tags = tf.one_hot(atom_data["chiral_tag"], 9)
     hybridizations = tf.one_hot(atom_data["hybridization"], 9)
     stereo = tf.one_hot(bond_data["stereo"], 8)
+    bond_type = tf.one_hot(bond_data["bond_type"], 22)
 
     graph_tensor = tfgnn.GraphTensor.from_pieces(
 
@@ -182,10 +188,11 @@ def create_graph_tensor(mol_data, atom_data, bond_data):
                 adjacency = tfgnn.Adjacency.from_indices(
                     source = ("atom", bond_data["source"]),
                     target = ("atom", bond_data["target"])),
-                features = {"bond_type": bond_data["bond_type"],
+                features = {"bond_type": bond_type,
                             "distance": bond_data["distance"].astype('float32'),
                             "is_conjugated": bond_data["is_conjugated"].astype(int),
-                            "stereo": stereo}
+                            "stereo": stereo,
+                            "normalized_distance": bond_data["norm_distance"]}
             ),
             "_readout/shift": tfgnn.EdgeSet.from_fields(
                 sizes = mol_data["n_pro"],
@@ -201,12 +208,12 @@ def create_graph_tensor(mol_data, atom_data, bond_data):
 
 if __name__ == "__main__":
     # create dataframes if they do not exist yet
-    if not os.path.isfile("code/predicting_model/Shift/DFTNN/h2o_mol.csv.gz"):
-        processData('data/own_data/h2o.txt')
+    if not os.path.isfile("code/predicting_model/Shift/DFTNN/own_data_mol.csv.gz"):
+        processData('data/own_data/own_data.txt')
 
-    mol_df = pd.read_csv("code/predicting_model/Shift/DFTNN/h2o_mol.csv.gz", index_col=0)
-    atom_df = pd.read_csv("code/predicting_model/Shift/DFTNN/h2o_atom.csv.gz", index_col=0)
-    bond_df = pd.read_csv("code/predicting_model/Shift/DFTNN/h2o_bond.csv.gz", index_col=0)
+    mol_df = pd.read_csv("code/predicting_model/Shift/DFTNN/own_data_mol.csv.gz", index_col=0)
+    atom_df = pd.read_csv("code/predicting_model/Shift/DFTNN/own_data_atom.csv.gz", index_col=0)
+    bond_df = pd.read_csv("code/predicting_model/Shift/DFTNN/own_data_bond.csv.gz", index_col=0)
 
     mol_df = mol_df.sample(frac=1)  #shuffle
 
@@ -216,9 +223,10 @@ if __name__ == "__main__":
     #test_data = tf.io.TFRecordWriter("data/own_data/shift_test.tfrecords.gz", options=options)
     #valid_data = tf.io.TFRecordWriter("data/own_data/shift_valid.tfrecords.gz", options=options)
 
-    train_data = tf.io.TFRecordWriter("data/own_data/h2o_train.tfrecords")
-    test_data = tf.io.TFRecordWriter("data/own_data/h2o_test.tfrecords")
-    valid_data = tf.io.TFRecordWriter("data/own_data/h2o_valid.tfrecords")
+    train_data = tf.io.TFRecordWriter("data/own_data/own_data_train.tfrecords")
+    test_data = tf.io.TFRecordWriter("data/own_data/own_data_test.tfrecords")
+    valid_data = tf.io.TFRecordWriter("data/own_data/own_data_valid.tfrecords")
+    all_data = tf.io.TFRecordWriter("data/own_data/all_data.tfrecords")
 
     total = len(mol_df)
 
@@ -242,10 +250,11 @@ if __name__ == "__main__":
         atom_data = atom_data.reset_index(drop=True)
         graph_tensor = create_graph_tensor(mol_data, atom_data, bond_data)
         example = tfgnn.write_example(graph_tensor)
-
-        if idx < total*0.7:
+        
+        all_data.write(example.SerializeToString())
+        '''if idx < total*0.7:
             train_data.write(example.SerializeToString())
         elif idx < total*0.85:
             valid_data.write(example.SerializeToString())
         else:
-            test_data.write(example.SerializeToString())
+            test_data.write(example.SerializeToString())'''

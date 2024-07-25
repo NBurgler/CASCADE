@@ -113,8 +113,9 @@ edge_sets {
         features: {
             key: "bond_type"
             value: {
-                description: "The type of bond (single, double, etc.)."
+                description: "The type of bond (single, double, etc.) as a one-hot."
                 dtype: DT_FLOAT
+                shape: { dim { size: 22 } }
             }
         }
         features: {
@@ -146,6 +147,14 @@ edge_sets {
                 description: "The stereo configuration of the bond as a one-hot."
                 dtype: DT_FLOAT
                 shape: { dim { size: 8 } }
+            }
+        }
+
+        features: {
+            key: "normalized_distance"
+            value: {
+                description: "The normalized interatomic distance."
+                dtype: DT_FLOAT
             }
         }
     }

@@ -3,6 +3,7 @@ import tensorflow as tf
 import tensorflow_gnn as tfgnn
 import itertools
 import pandas as pd
+from tqdm import tqdm
 from rdkit import Chem
 from rdkit.Chem import AllChem
 from tensorflow_gnn import runner
@@ -68,7 +69,7 @@ def set_initial_edge_state(edge_set, *, edge_set_name):
     # TODO: add other features
     return tf.keras.layers.Dense(256, name="edge_init")(features['rbf_distance'])
 
-def check_data(ds, graph_spec):
+def check_data_nodes(ds, graph_spec):
     dataset = ds.map(tfgnn.keras.layers.ParseSingleExample(graph_spec))
     degree_tensor = tf.zeros([0], dtype="int64")
     formal_charge_tensor = tf.zeros([0], dtype="int64")
@@ -85,8 +86,6 @@ def check_data(ds, graph_spec):
         num_Hs_tensor = tf.concat([num_Hs_tensor, graph.node_sets["atom"].__getitem__("num_Hs")], 0)
         valence_tensor = tf.concat([valence_tensor, graph.node_sets["atom"].__getitem__("valence")], 0)
     
-    print(num_Hs_tensor)
-    print(valence_tensor)
     print("_________CARDINALITY_________")
     print("degree: " + str(len(tf.unique(degree_tensor).y)) + " (" + str(tf.unique(degree_tensor).y) + ")")
     print("formal charge: " + str(len(tf.unique(formal_charge_tensor).y)) + " (" + str(tf.unique(formal_charge_tensor).y) + ")")
@@ -96,39 +95,30 @@ def check_data(ds, graph_spec):
     print("valence: " + str(len(tf.unique(valence_tensor).y)) + " (" + str(tf.unique(valence_tensor).y) + ")")
     print("_____________________________")
 
+def check_data_edges(ds, graph_spec):
+    dataset = ds.map(tfgnn.keras.layers.ParseSingleExample(graph_spec))
+    bond_type_tensor = tf.zeros([0], dtype="float32")
+    distance_tensor = tf.zeros([0], dtype="float32")
+    is_conjugated_tensor = tf.zeros([0], dtype="int64")
+    #stereo_tensor = tf.zeros([0], dtype="float32")
 
-if __name__ == "__main__":
-    path = "/home/s3665828/Documents/Masters_Thesis/repo/CASCADE/code/predicting_model/Shift/DFTNN/"
+    for graph in dataset:
+        bond_type_tensor = tf.concat([bond_type_tensor, graph.edge_sets["bond"].__getitem__("bond_type")], 0)
+        distance_tensor = tf.concat([distance_tensor, graph.edge_sets["bond"].__getitem__("distance")], 0)
+        is_conjugated_tensor = tf.concat([is_conjugated_tensor, graph.edge_sets["bond"].__getitem__("is_conjugated")], 0)
+        #stereo_tensor = tf.concat([stereo_tensor, graph.edge_sets["bond"].__getitem__("stereo")], 0)
 
-    graph_schema = tfgnn.read_schema("code/predicting_model/GraphSchema.pbtxt")
-    graph_spec = tfgnn.create_graph_spec_from_schema_pb(graph_schema)
-    model = tf.saved_model.load(path + "gnn/models/h2o_model")
-    signature_fn = model.signatures[
-        tf.saved_model.DEFAULT_SERVING_SIGNATURE_DEF_KEY]
+    print("_________CARDINALITY_________")
+    print("bond type: " + str(len(tf.unique(bond_type_tensor).y)) + " (" + str(tf.unique(bond_type_tensor).y) + ")")
+    print("distance: " + str(len(tf.unique(distance_tensor).y)) + " (" + str(tf.unique(distance_tensor).y) + ")")
+    print("is conjugated: " + str(len(tf.unique(is_conjugated_tensor).y)) + " (" + str(tf.unique(is_conjugated_tensor).y) + ")")
+    #print("stereo: " + str(len(tf.unique(stereo_tensor).y)) + " (" + str(tf.unique(stereo_tensor).y) + ")")
+    print("_____________________________")
 
-    num_examples = 2
-    #dataset = runner.TFRecordDataset(filenames=["data/own_data/shift_train.tfrecords"])
-    #dataset = dataset_provider.get_dataset(tf.distribute.InputContext())
-    dataset = tf.data.TFRecordDataset("data/own_data/h2o_train.tfrecords")
-    #dataset = dataset.batch(batch_size=1).repeat()
-
-    #check_data(dataset, graph_spec)
-
-    example = next(iter(dataset.batch(1)))
-    input_graph = tfgnn.parse_example(graph_spec, example)
-    graph = input_graph
-    #graph = tfgnn.keras.layers.MapFeatures(node_sets_fn=set_initial_node_state, edge_sets_fn=set_initial_edge_state)(graph)
-    print(graph)
-    print(graph.node_sets["_readout"].__getitem__("shift"))
-    print(graph.edge_sets["bond"])
-    print(graph.edge_sets["_readout/shift"])
-    print(graph.edge_sets["_readout/shift"].adjacency.source)
-    print(graph.edge_sets["_readout/shift"].adjacency.target)
-    #check_zero(input_graph)
-
+def check_distance_matrix():
     smiles="O"
     mol = Chem.MolFromSmiles(smiles)
-    '''AllChem.EmbedMolecule(mol, useRandomCoords=True)
+    AllChem.EmbedMolecule(mol, useRandomCoords=True)
     AllChem.MMFFOptimizeMolecule(mol)
     Chem.rdMolTransforms.CanonicalizeMol(mol, normalizeCovar=True, ignoreHs=False)
     distance_matrix = Chem.Get3DDistanceMatrix(mol)
@@ -137,25 +127,104 @@ if __name__ == "__main__":
     mol = Chem.AddHs(mol, addCoords=True)
     distance_matrix = Chem.Get3DDistanceMatrix(mol)
     print("_____________H_added_____________")
-    print(distance_matrix)'''
+    print(distance_matrix)
 
     mol_with_h = Chem.MolFromSmiles(smiles)
     mol_with_h = Chem.AddHs(mol_with_h)
-    '''AllChem.EmbedMolecule(mol_with_h, useRandomCoords=True)
+    AllChem.EmbedMolecule(mol_with_h, useRandomCoords=True)
     AllChem.MMFFOptimizeMolecule(mol_with_h)
     Chem.rdMolTransforms.CanonicalizeMol(mol_with_h, normalizeCovar=True, ignoreHs=False)
     distance_matrix_h = Chem.Get3DDistanceMatrix(mol_with_h)
     print("_____________H_at_start_____________")
-    print(distance_matrix_h)'''
+    print(distance_matrix_h)
 
-    '''atom_data = pd.read_csv("code/predicting_model/Shift/DFTNN/own_data_atom.csv.gz", index_col=0)
+    atom_data = pd.read_csv("code/predicting_model/Shift/DFTNN/own_data_atom.csv.gz", index_col=0)
     print(atom_data)
     print(atom_data["num_exp_H"])
     H_indices = atom_data.index[atom_data["atom_symbol"] == "H"].tolist()
-    print(atom_data["Shift"][H_indices])'''
+    print(atom_data["Shift"][H_indices])
 
-    input_dict = {"examples": example}
+def evaluate_model(dataset, model):
+    num_samples = 63565
+    results = tf.zeros([0], dtype="float32")
+    for i in tqdm(range(1000)):
+        examples = next(iter(dataset.batch(num_samples)))
+        example = tf.reshape(examples[i], (1,))
+        input_graph = tfgnn.parse_example(graph_spec, example)
+        input_dict = {"examples": example}
+        output_dict = signature_fn(**input_dict)
+        logits = output_dict["shifts"]
+        labels = tf.transpose(input_graph.node_sets["_readout"].__getitem__("shift").to_tensor())
+        mae = tf.math.reduce_mean(tf.keras.losses.MeanAbsoluteError().call(y_true=labels, y_pred=logits))
+        results = tf.concat([results, tf.reshape(mae, (1,))], axis=0)
+    
+
+    print(results)
+    print("Highest MAE:")
+    tf.print(tf.math.reduce_max(results))
+    print("Index of molecule with the highest MAE:")
+    tf.print(tf.math.argmax(results))
+
+    worst_index = tf.math.argmax(results)
+    worst_sample = tf.reshape(examples[worst_index], (1,))
+    input_graph = tfgnn.parse_example(graph_spec, worst_sample)
+    input_dict = {"examples": worst_sample}
     output_dict = signature_fn(**input_dict)
     logits = output_dict["shifts"]
+    labels = tf.transpose(input_graph.node_sets["_readout"].__getitem__("shift").to_tensor())
 
+    print("SMILES of molecule with the highest MAE:")
+    tf.print(input_graph.context.__getitem__("smiles"))
+    print("Actual shifts of the molecule:")
+    print(labels)
+    print("Predicted shifts of the molecule:")
     print(logits)
+
+    print("Bad samples detected at")
+    print(tf.where(tf.math.greater(results, tf.constant([1.0]))))
+
+
+def check_sample(dataset):
+    examples = next(iter(dataset.batch(63565)))
+    sample = tf.reshape(examples[832], (1,))
+    graph = tfgnn.parse_example(graph_spec, sample)
+    print(graph.node_sets["atom"].__getitem__("atom_num"))
+    print(graph.edge_sets["bond"].adjacency.source)
+    print(graph.edge_sets["bond"].adjacency.target)
+
+    smiles = "O=CNC=NC1CC1O"
+    mol = Chem.MolFromSmiles(smiles)
+    mol = Chem.AddHs(mol, addCoords=True)
+    for n, atom in enumerate(mol.GetAtoms()):
+        print(atom.GetSymbol())
+        for bond in atom.GetBonds():
+            print(bond.GetBeginAtomIdx())
+            print(bond.GetEndAtomIdx())
+    
+
+if __name__ == "__main__":
+    #path = "/home/s3665828/Documents/Masters_Thesis/repo/CASCADE/code/predicting_model/Shift/DFTNN/"
+    path = "C:/Users/niels/Documents/repo/CASCADE/code/predicting_model/Shift/DFTNN/"
+
+    graph_schema = tfgnn.read_schema("code/predicting_model/GraphSchema.pbtxt")
+    graph_spec = tfgnn.create_graph_spec_from_schema_pb(graph_schema)
+    model = tf.saved_model.load(path + "gnn/models/shift_model")
+    signature_fn = model.signatures[
+        tf.saved_model.DEFAULT_SERVING_SIGNATURE_DEF_KEY]
+
+    dataset_provider = runner.TFRecordDatasetProvider(filenames=["data/own_data/own_data_train.tfrecords"])
+    dataset = dataset_provider.get_dataset(tf.distribute.InputContext())
+
+    evaluate_model(dataset, model)
+    #check_sample(dataset)
+
+
+    #check_data_nodes(dataset, graph_spec)
+    #check_data_edges(dataset, graph_spec)
+
+    
+    #graph = tfgnn.keras.layers.MapFeatures(node_sets_fn=set_initial_node_state, edge_sets_fn=set_initial_edge_state)(graph)
+    
+    #check_zero(input_graph)
+
+    
