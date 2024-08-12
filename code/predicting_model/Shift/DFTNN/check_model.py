@@ -7,6 +7,7 @@ from tqdm import tqdm
 from rdkit import Chem
 from rdkit.Chem import AllChem
 from tensorflow_gnn import runner
+import keras.backend as K
 
 def check_zero(input_graph):
     i = 0
@@ -145,9 +146,10 @@ def check_distance_matrix():
     print(atom_data["Shift"][H_indices])
 
 def evaluate_model(dataset, model):
-    num_samples = 63565
+    num_samples = 90806
     results = tf.zeros([0], dtype="float32")
-    for i in tqdm(range(1000)):
+    output = {"molecule":[], "mae":[], "reverse_mae":[]}
+    for i in range(90806):
         examples = next(iter(dataset.batch(num_samples)))
         example = tf.reshape(examples[i], (1,))
         input_graph = tfgnn.parse_example(graph_spec, example)
@@ -155,34 +157,18 @@ def evaluate_model(dataset, model):
         output_dict = signature_fn(**input_dict)
         logits = output_dict["shifts"]
         labels = tf.transpose(input_graph.node_sets["_readout"].__getitem__("shift").to_tensor())
+        molecule = input_graph.context.__getitem__("smiles")
         mae = tf.math.reduce_mean(tf.keras.losses.MeanAbsoluteError().call(y_true=labels, y_pred=logits))
-        results = tf.concat([results, tf.reshape(mae, (1,))], axis=0)
+        reverse_mae = tf.math.reduce_mean(tf.keras.losses.MeanAbsoluteError().call(y_true=K.reverse(labels,axes=0), y_pred=logits))
+        
+        output["molecule"].append(molecule)
+        output["mae"].append(mae)
+        output["reverse_mae"].append(reverse_mae)
+
     
-
-    print(results)
-    print("Highest MAE:")
-    tf.print(tf.math.reduce_max(results))
-    print("Index of molecule with the highest MAE:")
-    tf.print(tf.math.argmax(results))
-
-    worst_index = tf.math.argmax(results)
-    worst_sample = tf.reshape(examples[worst_index], (1,))
-    input_graph = tfgnn.parse_example(graph_spec, worst_sample)
-    input_dict = {"examples": worst_sample}
-    output_dict = signature_fn(**input_dict)
-    logits = output_dict["shifts"]
-    labels = tf.transpose(input_graph.node_sets["_readout"].__getitem__("shift").to_tensor())
-
-    print("SMILES of molecule with the highest MAE:")
-    tf.print(input_graph.context.__getitem__("smiles"))
-    print("Actual shifts of the molecule:")
-    print(labels)
-    print("Predicted shifts of the molecule:")
-    print(logits)
-
-    print("Bad samples detected at")
-    print(tf.where(tf.math.greater(results, tf.constant([1.0]))))
-
+    output_df = pd.DataFrame.from_dict(output)
+    output_df.to_csv("/home1/s3665828/code/CASCADE/data/own_data/data_results.csv.gz", compression='gzip')
+    print(output_df)
 
 def check_sample(dataset):
     examples = next(iter(dataset.batch(63565)))
@@ -204,15 +190,15 @@ def check_sample(dataset):
 
 if __name__ == "__main__":
     #path = "/home/s3665828/Documents/Masters_Thesis/repo/CASCADE/code/predicting_model/Shift/DFTNN/"
-    path = "C:/Users/niels/Documents/repo/CASCADE/code/predicting_model/Shift/DFTNN/"
+    path = "/home1/s3665828/code/CASCADE/"
 
-    graph_schema = tfgnn.read_schema("code/predicting_model/GraphSchema.pbtxt")
+    graph_schema = tfgnn.read_schema(path + "code/predicting_model/GraphSchema.pbtxt")
     graph_spec = tfgnn.create_graph_spec_from_schema_pb(graph_schema)
-    model = tf.saved_model.load(path + "gnn/models/shift_model")
+    model = tf.saved_model.load(path + "code/predicting_model/Shift/DFTNN/gnn/models/shift_model")
     signature_fn = model.signatures[
         tf.saved_model.DEFAULT_SERVING_SIGNATURE_DEF_KEY]
-
-    dataset_provider = runner.TFRecordDatasetProvider(filenames=["data/own_data/own_data_train.tfrecords"])
+    
+    dataset_provider = runner.TFRecordDatasetProvider(filenames=[path + "data/own_data/all_data.tfrecords"])
     dataset = dataset_provider.get_dataset(tf.distribute.InputContext())
 
     evaluate_model(dataset, model)
