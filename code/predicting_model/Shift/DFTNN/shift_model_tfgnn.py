@@ -214,8 +214,3 @@ if __name__ == "__main__":
     exported_model.export(code_path + "gnn/models/shift_model")
    
     #for layer in model.layers: print(layer.get_config(), layer.get_weights())
-
-    '''for k, hist in history.history.items():
-        plt.plot(hist)
-        plt.title(k)
-        plt.show()'''
