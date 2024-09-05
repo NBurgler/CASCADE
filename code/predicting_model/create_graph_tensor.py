@@ -48,7 +48,7 @@ def processData(filepath):
     mol_dict = {"mol_id":[], "smiles":[], "n_atoms":[], "n_bonds":[], "n_pro":[]}
     atom_dict = {"mol_id":[], "atom_symbol":[], "chiral_tag":[], "degree":[], 
                  "formal_charge":[], "hybridization":[], "is_aromatic":[], 
-                 "no_implicit":[], "num_Hs":[], "valence":[], "Shift":[]}
+                 "no_implicit":[], "num_Hs":[], "valence":[], "Shift":[], "Shape":[]}
     bond_dict = {"mol_id":[], "bond_type":[], "distance":[], "is_conjugated":[], 
                  "stereo":[], "source":[], "target":[]}
 
@@ -99,9 +99,11 @@ def processData(filepath):
                 if (atom_symbol == "H"):
                     atomSplit = sampleSplit[3+iter_H].split(",")
                     atom_dict["Shift"].append(atomSplit[1])
+                    atom_dict["Shape"].append(atomSplit[3])
                     iter_H += 1
                 else:
                     atom_dict["Shift"].append(0.0)  #0.0 shift for non-H atoms
+                    atom_dict["Shape"].append("-")  
 
             for n, bond in enumerate(mol.GetBonds()):
                 bond_dict["mol_id"].append(mol_id)
@@ -151,7 +153,22 @@ def one_hot_encode_atoms(atom_symbols):
 
     return tf.one_hot(tf.convert_to_tensor(indices), 4)
 
-def create_graph_tensor(mol_data, atom_data, bond_data):
+def one_hot_encode_shape(shape_symbols):
+    indices = np.empty(6, dtype=int)
+    for i in range(6):
+        if shape_symbols[i] == '-': indices[i] = -1  # only for non-H atoms
+        elif shape_symbols[i] == 'm': indices[i] = 0
+        elif shape_symbols[i] == 's': indices[i] = 1
+        elif shape_symbols[i] == 'd': indices[i] = 2
+        elif shape_symbols[i] == 't': indices[i] = 3
+        elif shape_symbols[i] == 'q': indices[i] = 4
+        elif shape_symbols[i] == 'p': indices[i] = 5
+        elif shape_symbols[i] == 'h': indices[i] = 6
+        elif shape_symbols[i] == 'v': indices[i] = 7
+        
+    return tf.one_hot(tf.convert_to_tensor(indices), 8)
+
+def create_graph_tensor_shift(mol_data, atom_data, bond_data):
     H_indices = atom_data.index[atom_data["atom_symbol"] == "H"].tolist()
     atom_nums = one_hot_encode_atoms(atom_data["atom_symbol"])
     chiral_tags = tf.one_hot(atom_data["chiral_tag"], 9)
@@ -206,6 +223,63 @@ def create_graph_tensor(mol_data, atom_data, bond_data):
 
     return graph_tensor
 
+def create_graph_tensor_shape(mol_data, atom_data, bond_data):
+    H_indices = atom_data.index[atom_data["atom_symbol"] == "H"].tolist()
+    atom_nums = one_hot_encode_atoms(atom_data["atom_symbol"])
+    chiral_tags = tf.one_hot(atom_data["chiral_tag"], 9)
+    hybridizations = tf.one_hot(atom_data["hybridization"], 9)
+    stereo = tf.one_hot(bond_data["stereo"], 8)
+    bond_type = tf.one_hot(bond_data["bond_type"], 22)
+    shape = one_hot_encode_shape(atom_data["Shape"])
+
+    graph_tensor = tfgnn.GraphTensor.from_pieces(
+
+        context = tfgnn.Context.from_fields(features = {"smiles": mol_data["smiles"]}),
+
+        node_sets = {
+            "atom": tfgnn.NodeSet.from_fields(
+                sizes = mol_data["n_atoms"],
+                features = {"atom_num": atom_nums,
+                            "chiral_tag": chiral_tags,
+                            "degree": atom_data["degree"],
+                            "formal_charge": atom_data["formal_charge"],
+                            "hybridization": hybridizations,
+                            "is_aromatic": atom_data["is_aromatic"].astype(int),
+                            "no_implicit": atom_data["no_implicit"].astype(int),
+                            "num_Hs": atom_data["num_Hs"],
+                            "valence": atom_data["valence"],
+                            "shift": atom_data["Shift"][H_indices]}
+            ),
+            "_readout": tfgnn.NodeSet.from_fields(
+                sizes = mol_data["n_pro"],
+                features = {"shape": shape[H_indices]}
+            )
+        },
+
+        edge_sets = {
+            "bond": tfgnn.EdgeSet.from_fields(
+                sizes = mol_data["n_bonds"],
+                adjacency = tfgnn.Adjacency.from_indices(
+                    source = ("atom", bond_data["source"]),
+                    target = ("atom", bond_data["target"])),
+                features = {"bond_type": bond_type,
+                            "distance": bond_data["distance"].astype('float32'),
+                            "is_conjugated": bond_data["is_conjugated"].astype(int),
+                            "stereo": stereo,
+                            "normalized_distance": bond_data["norm_distance"]}
+            ),
+            "_readout/shift": tfgnn.EdgeSet.from_fields(
+                sizes = mol_data["n_pro"],
+                adjacency = tfgnn.Adjacency.from_indices(
+                    source = ("atom", H_indices),
+                    target = ("_readout", list(range(mol_data["n_pro"].values[0])))
+                )
+            )
+        }
+    )
+
+    return graph_tensor
+
 if __name__ == "__main__":
     # create dataframes if they do not exist yet
     if not os.path.isfile("code/predicting_model/Shift/DFTNN/own_data_mol.csv.gz"):
@@ -217,12 +291,6 @@ if __name__ == "__main__":
 
     mol_df = mol_df.sample(frac=1)  #shuffle
 
-    options = tf.io.TFRecordOptions(compression_type="GZIP")
-
-    #train_data = tf.io.TFRecordWriter("data/own_data/shift_train.tfrecords.gz", options=options)
-    #test_data = tf.io.TFRecordWriter("data/own_data/shift_test.tfrecords.gz", options=options)
-    #valid_data = tf.io.TFRecordWriter("data/own_data/shift_valid.tfrecords.gz", options=options)
-
     train_data = tf.io.TFRecordWriter("data/own_data/own_data_train.tfrecords")
     test_data = tf.io.TFRecordWriter("data/own_data/own_data_test.tfrecords")
     valid_data = tf.io.TFRecordWriter("data/own_data/own_data_valid.tfrecords")
@@ -232,11 +300,6 @@ if __name__ == "__main__":
 
     graph_schema = tfgnn.read_schema("code/predicting_model/GraphSchema.pbtxt")
     graph_spec = tfgnn.create_graph_spec_from_schema_pb(graph_schema)
-
-    '''graph = tfgnn.random_graph_tensor(graph_spec)
-    random_example = tfgnn.write_example(graph)
-    print(random_example)
-    print(tfgnn.check_compatible_with_schema_pb(graph, graph_schema))'''
 
     for idx, mol_id in tqdm(enumerate(mol_df["mol_id"])):
         mol_data = mol_df.loc[mol_df["mol_id"] == mol_id]
@@ -248,13 +311,13 @@ if __name__ == "__main__":
         
         # make sure the index resets to 0 instead of continuing from the previous molecule
         atom_data = atom_data.reset_index(drop=True)
-        graph_tensor = create_graph_tensor(mol_data, atom_data, bond_data)
+        graph_tensor = create_graph_tensor_shift(mol_data, atom_data, bond_data)
         example = tfgnn.write_example(graph_tensor)
         
         all_data.write(example.SerializeToString())
-        '''if idx < total*0.7:
+        if idx < total*0.7:
             train_data.write(example.SerializeToString())
         elif idx < total*0.85:
             valid_data.write(example.SerializeToString())
         else:
-            test_data.write(example.SerializeToString())'''
+            test_data.write(example.SerializeToString())
