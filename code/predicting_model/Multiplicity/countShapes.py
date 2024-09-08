@@ -1,4 +1,5 @@
-file = open('../../../data/own_data/cleaned_dataset.txt', 'r')
+path =  "/home/s3665828/Documents/Masters_Thesis/repo/CASCADE/"
+file = open(path + '/data/own_data/own_data_non_canon.txt', 'r')
 text = file.read()
 samples = text.split('\n\n')
 count = {}
