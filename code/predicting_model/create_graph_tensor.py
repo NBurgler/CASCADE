@@ -39,7 +39,7 @@ def findEmbedding(mol):
     return mol, flag
 
 
-def processData(filepath):
+def processData(filepath, path):
     file = open(filepath, 'r')
     text = file.read()
     samples = text.split('\n\n')
@@ -133,9 +133,9 @@ def processData(filepath):
     print(atom_df.to_string())
     print(bond_df.to_string())'''
 
-    mol_df.to_csv("code/predicting_model/Shift/DFTNN/own_data_mol.csv.gz", compression='gzip')
-    atom_df.to_csv("code/predicting_model/Shift/DFTNN/own_data_atom.csv.gz", compression='gzip')
-    bond_df.to_csv("code/predicting_model/Shift/DFTNN/own_data_bond.csv.gz", compression='gzip')
+    mol_df.to_csv(path + "code/predicting_model/Shift/DFTNN/own_data_mol.csv.gz", compression='gzip')
+    atom_df.to_csv(path + "code/predicting_model/Shift/DFTNN/own_data_atom.csv.gz", compression='gzip')
+    bond_df.to_csv(path + "code/predicting_model/Shift/DFTNN/own_data_bond.csv.gz", compression='gzip')
 
 
 def one_hot_encode_atoms(atom_symbols):
@@ -281,24 +281,26 @@ def create_graph_tensor_shape(mol_data, atom_data, bond_data):
     return graph_tensor
 
 if __name__ == "__main__":
+    path = "/home1/s3665828/code/CASCADE/"
+    
     # create dataframes if they do not exist yet
-    if not os.path.isfile("code/predicting_model/Shift/DFTNN/own_data_mol.csv.gz"):
-        processData('data/own_data/own_data.txt')
+    if not os.path.isfile(path + "code/predicting_model/Shift/DFTNN/own_data_mol.csv.gz"):
+        processData(path + 'data/own_data/own_data_non_canon.txt', path)
 
-    mol_df = pd.read_csv("code/predicting_model/Shift/DFTNN/own_data_mol.csv.gz", index_col=0)
-    atom_df = pd.read_csv("code/predicting_model/Shift/DFTNN/own_data_atom.csv.gz", index_col=0)
-    bond_df = pd.read_csv("code/predicting_model/Shift/DFTNN/own_data_bond.csv.gz", index_col=0)
+    mol_df = pd.read_csv(path + "code/predicting_model/Shift/DFTNN/own_data_mol.csv.gz", index_col=0)
+    atom_df = pd.read_csv(path + "code/predicting_model/Shift/DFTNN/own_data_atom.csv.gz", index_col=0)
+    bond_df = pd.read_csv(path + "code/predicting_model/Shift/DFTNN/own_data_bond.csv.gz", index_col=0)
 
     mol_df = mol_df.sample(frac=1)  #shuffle
 
-    train_data = tf.io.TFRecordWriter("data/own_data/own_data_train.tfrecords")
-    test_data = tf.io.TFRecordWriter("data/own_data/own_data_test.tfrecords")
-    valid_data = tf.io.TFRecordWriter("data/own_data/own_data_valid.tfrecords")
-    all_data = tf.io.TFRecordWriter("data/own_data/all_data.tfrecords")
+    train_data = tf.io.TFRecordWriter(path + "data/own_data/own_data_train.tfrecords")
+    test_data = tf.io.TFRecordWriter(path + "data/own_data/own_data_test.tfrecords")
+    valid_data = tf.io.TFRecordWriter(path + "data/own_data/own_data_valid.tfrecords")
+    all_data = tf.io.TFRecordWriter(path + "data/own_data/all_data.tfrecords")
 
     total = len(mol_df)
 
-    graph_schema = tfgnn.read_schema("code/predicting_model/GraphSchema.pbtxt")
+    graph_schema = tfgnn.read_schema(path + "code/predicting_model/GraphSchema.pbtxt")
     graph_spec = tfgnn.create_graph_spec_from_schema_pb(graph_schema)
 
     for idx, mol_id in tqdm(enumerate(mol_df["mol_id"])):
