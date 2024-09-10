@@ -172,6 +172,33 @@ def evaluate_model(dataset, model):
     #output_df.to_csv("/home1/s3665828/code/CASCADE/data/own_data/data_results.csv.gz", compression='gzip')
     #print(output_df)
 
+def evaluate_model_shifts(dataset, model, path):
+    num_samples = 90780
+    output = {"molecule":[], "target_shift":[], "predicted_shift":[], "mae":[]}
+
+    for i in range(num_samples):
+        examples = next(iter(dataset.batch(num_samples)))
+        example = tf.reshape(examples[i], (1,))
+        input_graph = tfgnn.parse_example(graph_spec, example)
+        input_dict = {"examples": example}
+        output_dict = signature_fn(**input_dict)
+        logits = output_dict["shifts"]
+        labels = tf.transpose(input_graph.node_sets["_readout"].__getitem__("shift").to_tensor())
+        molecule = input_graph.context.__getitem__("smiles")
+        for j, predicted_shift in enumerate(logits):
+            target_shift = labels[j]
+            output["molecule"].append(tf.get_static_value(molecule).astype(str)[0][0])
+            output["target_shift"].append(tf.get_static_value(target_shift)[0])
+            output["predicted_shift"].append(tf.get_static_value(predicted_shift)[0])
+            mae = tf.math.reduce_mean(tf.keras.losses.MeanAbsoluteError().call(y_true=target_shift, y_pred=predicted_shift))
+            output["mae"].append(tf.get_static_value(mae)) 
+
+    
+    output_df = pd.DataFrame.from_dict(output)
+    print(output_df)
+    output_df.to_csv(path + "data/own_data/shift_results.csv.gz", compression='gzip')
+
+
 def check_sample(dataset):
     examples = next(iter(dataset.batch(63565)))
     sample = tf.reshape(examples[832], (1,))
@@ -223,9 +250,9 @@ def plot_results(results):
     
 
 if __name__ == "__main__":
-    #path = "/home/s3665828/Documents/Masters_Thesis/repo/CASCADE/"
+    path = "/home/s3665828/Documents/Masters_Thesis/repo/CASCADE/"
     #path = "/home1/s3665828/code/CASCADE/"
-    path = "C:/Users/niels/Documents/repo/CASCADE/"
+    #path = "C:/Users/niels/Documents/repo/CASCADE/"
 
     graph_schema = tfgnn.read_schema(path + "code/predicting_model/GraphSchema.pbtxt")
     graph_spec = tfgnn.create_graph_spec_from_schema_pb(graph_schema)
@@ -236,29 +263,23 @@ if __name__ == "__main__":
     dataset_provider = runner.TFRecordDatasetProvider(filenames=[path + "data/own_data/all_data.tfrecords"])
     dataset = dataset_provider.get_dataset(tf.distribute.InputContext())
 
+    evaluate_model_shifts(dataset, model, path)
+
     #evaluate_model(dataset, model)
 
-    results = pd.read_csv(path + "data/own_data/data_results.csv.gz", index_col=0)
-    results = results.sort_values(by='mae', ascending=False)
-    print(results[:4000].to_string())
+    #results = pd.read_csv(path + "data/own_data/data_results.csv.gz", index_col=0)
+    #results = results.sort_values(by='mae', ascending=False)
     #evaluate_sample(dataset, model, 540)
     #evaluate_sample(dataset, model, 87813)
     #evaluate_sample(dataset, model, 69168)
-    plot_results(results)
+    #plot_results(results)
 
-    results["reverse_better"] =  np.where(results['reverse_mae'] < results["mae"], "yes", "no")
-    print(results)
-    print(results["reverse_better"])
-    print(results.loc[7434])
-    print(results.loc[34288])
-    print(results.loc[39488])
-    print(results.loc[68589])
-    print(results.loc[73665])
-    print("Average MAE:\n" + str(results.loc[:, "mae"].mean()))
-    print("Number of samples where reverse is better: " + str(results["reverse_better"].value_counts()[1]))
-    print("Samples where reverse is better: " + str(results[results["reverse_better"]=="yes"]))
-    print("Number of samples where MAE > 1: " + str(len(results[results["mae"]>1])))
-    print("Samples where MAE > 1:\n" + str(results[results["mae"]>1]))
+    #results["reverse_better"] =  np.where(results['reverse_mae'] < results["mae"], "yes", "no")
+    #print("Average MAE:\n" + str(results.loc[:, "mae"].mean()))
+    #print("Number of samples where reverse is better: " + str(results["reverse_better"].value_counts()[1]))
+    #print("Samples where reverse is better: " + str(results[results["reverse_better"]=="yes"]))
+    #print("Number of samples where MAE > 1: " + str(len(results[results["mae"]>1])))
+    #print("Samples where MAE > 1:\n" + str(results[results["mae"]>1]))
     #plot_results(results)
 
     
