@@ -157,8 +157,8 @@ def one_hot_encode_shape(shape_symbols):
         elif shape_symbols[i] == 't': indices[i] = 3
         elif shape_symbols[i] == 'q': indices[i] = 4
         elif shape_symbols[i] == 'p': indices[i] = 5
-        elif shape_symbols[i] == 'x': indices[i] = 6
-        elif shape_symbols[i] == 'h': indices[i] = 7
+        elif shape_symbols[i] == 'h': indices[i] = 6
+        elif shape_symbols[i] == 'v': indices[i] = 7
         
     return tf.one_hot(tf.convert_to_tensor(indices), 8)
 
