@@ -127,9 +127,9 @@ def processData(filepath, path):
 
     bond_df["norm_distance"] = (bond_df["distance"] - bond_df["distance"].mean())/bond_df["distance"].std()
 
-    mol_df.to_csv(path + "code/predicting_model/Shift/DFTNN/own_data_mol.csv.gz", compression='gzip')
-    atom_df.to_csv(path + "code/predicting_model/Shift/DFTNN/own_data_atom.csv.gz", compression='gzip')
-    bond_df.to_csv(path + "code/predicting_model/Shift/DFTNN/own_data_bond.csv.gz", compression='gzip')
+    mol_df.to_csv(path + "code/predicting_model/Shift/DFTNN/small_data_mol.csv.gz", compression='gzip')
+    atom_df.to_csv(path + "code/predicting_model/Shift/DFTNN/small_data_atom.csv.gz", compression='gzip')
+    bond_df.to_csv(path + "code/predicting_model/Shift/DFTNN/small_data_bond.csv.gz", compression='gzip')
 
 
 def one_hot_encode_atoms(atom_symbols):
@@ -148,19 +148,24 @@ def one_hot_encode_atoms(atom_symbols):
     return tf.one_hot(tf.convert_to_tensor(indices), 4)
 
 def one_hot_encode_shape(shape_symbols):
-    indices = np.empty(6, dtype=int)
-    for i in range(6):
-        if shape_symbols[i] == '-': indices[i] = -1  # only for non-H atoms
-        elif shape_symbols[i] == 'm': indices[i] = 0
-        elif shape_symbols[i] == 's': indices[i] = 1
-        elif shape_symbols[i] == 'd': indices[i] = 2
-        elif shape_symbols[i] == 't': indices[i] = 3
-        elif shape_symbols[i] == 'q': indices[i] = 4
-        elif shape_symbols[i] == 'p': indices[i] = 5
-        elif shape_symbols[i] == 'h': indices[i] = 6
-        elif shape_symbols[i] == 'v': indices[i] = 7
-        
-    return tf.one_hot(tf.convert_to_tensor(indices), 8)
+    one_hot_shapes = np.empty((0,8), dtype=int)
+    for shape in shape_symbols:
+        indices = np.ones(6, dtype=int)
+        for i in range(len(shape)):
+            if shape[i] == '-': 
+                indices *= -1  # only for non-H atoms
+                break   
+            elif shape[i] == 'm': indices[i] = 0
+            elif shape[i] == 's': indices[i] = 1
+            elif shape[i] == 'd': indices[i] = 2
+            elif shape[i] == 't': indices[i] = 3
+            elif shape[i] == 'q': indices[i] = 4
+            elif shape[i] == 'p': indices[i] = 5
+            elif shape[i] == 'h': indices[i] = 6
+            elif shape[i] == 'v': indices[i] = 7
+            
+        one_hot_shapes = np.append(one_hot_shapes, tf.one_hot(tf.convert_to_tensor(indices), 8), axis=0)
+    return one_hot_shapes
 
 def create_graph_tensor_shift(mol_data, atom_data, bond_data):
     H_indices = atom_data.index[atom_data["atom_symbol"] == "H"].tolist()
@@ -225,6 +230,8 @@ def create_graph_tensor_shape(mol_data, atom_data, bond_data):
     stereo = tf.one_hot(bond_data["stereo"], 8)
     bond_type = tf.one_hot(bond_data["bond_type"], 22)
     shape = one_hot_encode_shape(atom_data["Shape"])
+    print(shape)
+    print(shape[0])
 
     graph_tensor = tfgnn.GraphTensor.from_pieces(
 
@@ -242,7 +249,7 @@ def create_graph_tensor_shape(mol_data, atom_data, bond_data):
                             "no_implicit": atom_data["no_implicit"].astype(int),
                             "num_Hs": atom_data["num_Hs"],
                             "valence": atom_data["valence"],
-                            "shift": atom_data["Shift"][H_indices]}
+                            "shift": atom_data["Shift"]}
             ),
             "_readout": tfgnn.NodeSet.from_fields(
                 sizes = mol_data["n_pro"],
@@ -275,26 +282,27 @@ def create_graph_tensor_shape(mol_data, atom_data, bond_data):
     return graph_tensor
 
 if __name__ == "__main__":
-    path = "/home1/s3665828/code/CASCADE/"
-    
-    # create dataframes if they do not exist yet
-    if not os.path.isfile(path + "code/predicting_model/Shift/DFTNN/own_data_mol.csv.gz"):
-        processData(path + 'data/own_data/own_data_non_canon.txt', path)
+    #path = "/home1/s3665828/code/CASCADE/"
+    path = "/home/s3665828/Documents/Masters_Thesis/repo/CASCADE/"
 
-    mol_df = pd.read_csv(path + "code/predicting_model/Shift/DFTNN/own_data_mol.csv.gz", index_col=0)
-    atom_df = pd.read_csv(path + "code/predicting_model/Shift/DFTNN/own_data_atom.csv.gz", index_col=0)
-    bond_df = pd.read_csv(path + "code/predicting_model/Shift/DFTNN/own_data_bond.csv.gz", index_col=0)
+    # create dataframes if they do not exist yet
+    if not os.path.isfile(path + "code/predicting_model/Shift/DFTNN/small_data_mol.csv.gz"):
+        processData(path + 'data/own_data/small_dataset.txt', path)
+
+    mol_df = pd.read_csv(path + "code/predicting_model/Shift/DFTNN/small_data_mol.csv.gz", index_col=0)
+    atom_df = pd.read_csv(path + "code/predicting_model/Shift/DFTNN/small_data_atom.csv.gz", index_col=0)
+    bond_df = pd.read_csv(path + "code/predicting_model/Shift/DFTNN/small_data_bond.csv.gz", index_col=0)
 
     mol_df = mol_df.sample(frac=1)  #shuffle
 
-    train_data = tf.io.TFRecordWriter(path + "data/own_data/own_data_train.tfrecords")
-    test_data = tf.io.TFRecordWriter(path + "data/own_data/own_data_test.tfrecords")
-    valid_data = tf.io.TFRecordWriter(path + "data/own_data/own_data_valid.tfrecords")
+    train_data = tf.io.TFRecordWriter(path + "data/own_data/small_data_train.tfrecords")
+    test_data = tf.io.TFRecordWriter(path + "data/own_data/small_data_test.tfrecords")
+    valid_data = tf.io.TFRecordWriter(path + "data/own_data/small_data_valid.tfrecords")
     all_data = tf.io.TFRecordWriter(path + "data/own_data/all_data.tfrecords")
 
     total = len(mol_df)
 
-    graph_schema = tfgnn.read_schema(path + "code/predicting_model/GraphSchema.pbtxt")
+    graph_schema = tfgnn.read_schema(path + "code/predicting_model/GraphSchemaMult.pbtxt")
     graph_spec = tfgnn.create_graph_spec_from_schema_pb(graph_schema)
 
     for idx, mol_id in tqdm(enumerate(mol_df["mol_id"])):
