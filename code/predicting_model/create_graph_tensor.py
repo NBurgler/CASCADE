@@ -101,8 +101,8 @@ def processData(filepath, path):
                     atom_dict["Shift"].append(atomSplit[1])
                     atom_dict["Shape"].append(atomSplit[3])
                     iter_H += 1
-                else:
-                    atom_dict["Shift"].append(0.0)  #0.0 shift for non-H atoms
+                else: # not really necessary now, but useful for adding C-NMR in the future
+                    atom_dict["Shift"].append(0.0)  # 0.0 shift for non-H atoms
                     atom_dict["Shape"].append("-")  
 
             for n, bond in enumerate(mol.GetBonds()):
@@ -126,12 +126,6 @@ def processData(filepath, path):
     bond_df = pd.DataFrame.from_dict(bond_dict)
 
     bond_df["norm_distance"] = (bond_df["distance"] - bond_df["distance"].mean())/bond_df["distance"].std()
-    '''print(bond_df["distance"].mean())
-    print(bond_df["distance"].std())
-
-    print(mol_df)
-    print(atom_df.to_string())
-    print(bond_df.to_string())'''
 
     mol_df.to_csv(path + "code/predicting_model/Shift/DFTNN/own_data_mol.csv.gz", compression='gzip')
     atom_df.to_csv(path + "code/predicting_model/Shift/DFTNN/own_data_atom.csv.gz", compression='gzip')
@@ -163,8 +157,8 @@ def one_hot_encode_shape(shape_symbols):
         elif shape_symbols[i] == 't': indices[i] = 3
         elif shape_symbols[i] == 'q': indices[i] = 4
         elif shape_symbols[i] == 'p': indices[i] = 5
-        elif shape_symbols[i] == 'h': indices[i] = 6
-        elif shape_symbols[i] == 'v': indices[i] = 7
+        elif shape_symbols[i] == 'x': indices[i] = 6
+        elif shape_symbols[i] == 'h': indices[i] = 7
         
     return tf.one_hot(tf.convert_to_tensor(indices), 8)
 
@@ -268,7 +262,7 @@ def create_graph_tensor_shape(mol_data, atom_data, bond_data):
                             "stereo": stereo,
                             "normalized_distance": bond_data["norm_distance"]}
             ),
-            "_readout/shift": tfgnn.EdgeSet.from_fields(
+            "_readout/shape": tfgnn.EdgeSet.from_fields(
                 sizes = mol_data["n_pro"],
                 adjacency = tfgnn.Adjacency.from_indices(
                     source = ("atom", H_indices),
@@ -313,7 +307,7 @@ if __name__ == "__main__":
         
         # make sure the index resets to 0 instead of continuing from the previous molecule
         atom_data = atom_data.reset_index(drop=True)
-        graph_tensor = create_graph_tensor_shift(mol_data, atom_data, bond_data)
+        graph_tensor = create_graph_tensor_shape(mol_data, atom_data, bond_data)
         example = tfgnn.write_example(graph_tensor)
         
         all_data.write(example.SerializeToString())
