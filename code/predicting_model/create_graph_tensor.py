@@ -127,9 +127,9 @@ def processData(filepath, path):
 
     bond_df["norm_distance"] = (bond_df["distance"] - bond_df["distance"].mean())/bond_df["distance"].std()
 
-    mol_df.to_csv(path + "code/predicting_model/Shift/DFTNN/small_data_mol.csv.gz", compression='gzip')
-    atom_df.to_csv(path + "code/predicting_model/Shift/DFTNN/small_data_atom.csv.gz", compression='gzip')
-    bond_df.to_csv(path + "code/predicting_model/Shift/DFTNN/small_data_bond.csv.gz", compression='gzip')
+    mol_df.to_csv(path + "code/predicting_model/Shift/DFTNN/own_data_mol.csv.gz", compression='gzip')
+    atom_df.to_csv(path + "code/predicting_model/Shift/DFTNN/own_data_atom.csv.gz", compression='gzip')
+    bond_df.to_csv(path + "code/predicting_model/Shift/DFTNN/own_data_bond.csv.gz", compression='gzip')
 
 
 def one_hot_encode_atoms(atom_symbols):
@@ -148,7 +148,7 @@ def one_hot_encode_atoms(atom_symbols):
     return tf.one_hot(tf.convert_to_tensor(indices), 4)
 
 def one_hot_encode_shape(shape_symbols):
-    one_hot_shapes = np.empty((0,8), dtype=int)
+    one_hot_shapes = np.empty((0,6,8), dtype=int)
     for shape in shape_symbols:
         indices = np.ones(6, dtype=int)
         for i in range(len(shape)):
@@ -164,7 +164,7 @@ def one_hot_encode_shape(shape_symbols):
             elif shape[i] == 'h': indices[i] = 6
             elif shape[i] == 'v': indices[i] = 7
             
-        one_hot_shapes = np.append(one_hot_shapes, tf.one_hot(tf.convert_to_tensor(indices), 8), axis=0)
+        one_hot_shapes = np.append(one_hot_shapes, np.expand_dims(tf.one_hot(tf.convert_to_tensor(indices), 8), axis=0), axis=0)
     return one_hot_shapes
 
 def create_graph_tensor_shift(mol_data, atom_data, bond_data):
@@ -230,8 +230,6 @@ def create_graph_tensor_shape(mol_data, atom_data, bond_data):
     stereo = tf.one_hot(bond_data["stereo"], 8)
     bond_type = tf.one_hot(bond_data["bond_type"], 22)
     shape = one_hot_encode_shape(atom_data["Shape"])
-    print(shape)
-    print(shape[0])
 
     graph_tensor = tfgnn.GraphTensor.from_pieces(
 
@@ -282,23 +280,24 @@ def create_graph_tensor_shape(mol_data, atom_data, bond_data):
     return graph_tensor
 
 if __name__ == "__main__":
-    #path = "/home1/s3665828/code/CASCADE/"
-    path = "/home/s3665828/Documents/Masters_Thesis/repo/CASCADE/"
+    path = "/home1/s3665828/code/CASCADE/"
+    #path = "/home/s3665828/Documents/Masters_Thesis/repo/CASCADE/"
+    #path = "C:/Users/niels/Documents/repo/CASCADE/"
 
     # create dataframes if they do not exist yet
-    if not os.path.isfile(path + "code/predicting_model/Shift/DFTNN/small_data_mol.csv.gz"):
-        processData(path + 'data/own_data/small_dataset.txt', path)
+    if not os.path.isfile(path + "code/predicting_model/Shift/DFTNN/own_data_mol.csv.gz"):
+        processData(path + 'data/own_data/own_data_non_canon.txt', path)
 
-    mol_df = pd.read_csv(path + "code/predicting_model/Shift/DFTNN/small_data_mol.csv.gz", index_col=0)
-    atom_df = pd.read_csv(path + "code/predicting_model/Shift/DFTNN/small_data_atom.csv.gz", index_col=0)
-    bond_df = pd.read_csv(path + "code/predicting_model/Shift/DFTNN/small_data_bond.csv.gz", index_col=0)
+    mol_df = pd.read_csv(path + "code/predicting_model/Shift/DFTNN/own_data_mol.csv.gz", index_col=0)
+    atom_df = pd.read_csv(path + "code/predicting_model/Shift/DFTNN/own_data_atom.csv.gz", index_col=0)
+    bond_df = pd.read_csv(path + "code/predicting_model/Shift/DFTNN/own_data_bond.csv.gz", index_col=0)
 
     mol_df = mol_df.sample(frac=1)  #shuffle
 
-    train_data = tf.io.TFRecordWriter(path + "data/own_data/small_data_train.tfrecords")
-    test_data = tf.io.TFRecordWriter(path + "data/own_data/small_data_test.tfrecords")
-    valid_data = tf.io.TFRecordWriter(path + "data/own_data/small_data_valid.tfrecords")
-    all_data = tf.io.TFRecordWriter(path + "data/own_data/all_data.tfrecords")
+    train_data = tf.io.TFRecordWriter(path + "data/own_data/shape_data_train.tfrecords")
+    test_data = tf.io.TFRecordWriter(path + "data/own_data/shape_data_test.tfrecords")
+    valid_data = tf.io.TFRecordWriter(path + "data/own_data/shape_data_valid.tfrecords")
+    all_data = tf.io.TFRecordWriter(path + "data/own_data/all_shape_data.tfrecords")
 
     total = len(mol_df)
 
