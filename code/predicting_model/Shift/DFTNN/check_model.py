@@ -247,7 +247,14 @@ def plot_results(results):
     fig.update_layout(xaxis=dict(type='category'))
     plot = DynamicPlot(fig)
     plot.show()
-    
+
+def plot_shifts(path):
+    atom_data = pd.read_csv(path + "code/predicting_model/Shift/DFTNN/own_data_atom.csv.gz")
+    print(atom_data.loc[atom_data["atom_symbol"] == "H"]["Shift"])
+    fig = px.histogram(atom_data.loc[atom_data["atom_symbol"] == "H"], x='Shift', nbins=50)
+    plot = DynamicPlot(fig)
+    plot.show()
+
 
 if __name__ == "__main__":
     path = "/home/s3665828/Documents/Masters_Thesis/repo/CASCADE/"
