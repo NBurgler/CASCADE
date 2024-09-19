@@ -8,7 +8,7 @@ node_sets {
             value: {
                 description: "The atom number encoded as a one-hot."
                 dtype: DT_FLOAT
-                shape: { dim { size: 4 } }
+                shape: { dim { size: 7 } }
             }
         }
 
