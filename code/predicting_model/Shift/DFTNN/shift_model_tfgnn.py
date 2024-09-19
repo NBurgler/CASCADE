@@ -45,7 +45,7 @@ def set_initial_node_state(node_set, *, node_set_name):
     is_aromatic_embedding = tf.keras.layers.Embedding(2, 1, name="is_aromatic_embedding")(node_set["is_aromatic"])
     no_implicit_embedding = tf.keras.layers.Embedding(2, 1, name="no_implicit_embedding")(node_set["no_implicit"])
     num_Hs_embedding = tf.keras.layers.Embedding(5, 2, name="num_Hs_embedding")(node_set["num_Hs"])
-    valence_embedding = tf.keras.layers.Embedding(5, 2, name="valence_embedding")(node_set["valence"])
+    valence_embedding = tf.keras.layers.Embedding(7, 3, name="valence_embedding")(node_set["valence"])
 
     # concatenate the embeddings
     concatenated_embedding = tf.keras.layers.Concatenate()([atom_num_embedding, chiral_tag_embedding,
@@ -137,24 +137,28 @@ def _build_model(graph_tensor_spec):
 
 
 if __name__ == "__main__":
-    #path = "/home/s3665828/Documents/Masters_Thesis/repo/CASCADE/"
-    path = "C:/Users/niels/Documents/repo/CASCADE/"
+    path = "/home/s3665828/Documents/Masters_Thesis/repo/CASCADE/"
+    #path = "C:/Users/niels/Documents/repo/CASCADE/"
     batch_size = 64
-    initial_learning_rate = 5E-3
-    epochs = 20
+    initial_learning_rate = 5E-4
+    epochs = 1
     epoch_divisor = 1
 
-    train_path = path + "data/own_data/own_data_train.tfrecords"
-    val_path = path + "data/own_data/own_data_valid.tfrecords"
+    train_path = path + "data/own_data/DFT_data_train.tfrecords"
+    val_path = path + "data/own_data/DFT_data_valid.tfrecords"
 
 
     #train_size = 8
     #valid_size = 2
     #test_size = 2
 
-    train_size = 63565
-    valid_size = 13622
-    test_size = 13622
+    #train_size = 63565
+    #valid_size = 13622
+    #test_size = 13622
+
+    train_size = 175324
+    valid_size = 37570
+    test_size =  37570
 
     steps_per_epoch = train_size // batch_size // epoch_divisor
     validation_steps = valid_size // batch_size // epoch_divisor
@@ -196,7 +200,7 @@ if __name__ == "__main__":
     model.summary()
 
     code_path = path + "code/predicting_model/Shift/DFTNN/"
-    filepath = code_path + "gnn/models/shift_model/checkpoint"
+    filepath = code_path + "gnn/models/DFT_model/checkpoint"
     log_dir = code_path + "logs/fit/" + datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
     tensorboard_callback = tf.keras.callbacks.TensorBoard(log_dir=log_dir, histogram_freq=1)
     checkpoint = tf.keras.callbacks.ModelCheckpoint(filepath, save_best_only=True, period=1, verbose=1)
@@ -211,6 +215,6 @@ if __name__ == "__main__":
     serving_logits = model(serving_model_input)
     serving_output = {"shifts": serving_logits}
     exported_model = tf.keras.Model(serving_input, serving_output)
-    exported_model.export(code_path + "gnn/models/shift_model")
+    exported_model.export(code_path + "gnn/models/DFT_model")
    
     #for layer in model.layers: print(layer.get_config(), layer.get_weights())
