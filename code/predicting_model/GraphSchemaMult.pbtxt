@@ -2,11 +2,19 @@ node_sets {
     key: "atom"
     value { 
         description: "An atom."
+
+        features: {
+            key: "_atom_idx"
+            value: {
+                description: "The atom index."
+                dtype: DT_INT64
+            }
+        }
     
         features: {
-            key: "atom_num"
+            key: "atom_sym"
             value: {
-                description: "The atom number encoded as a one-hot."
+                description: "The atom symbol encoded as a one-hot."
                 dtype: DT_FLOAT
                 shape: { dim { size: 7 } }
             }
@@ -184,6 +192,14 @@ context {
         value: {
             description: "The smiles of the molecule."
             dtype: DT_STRING
+        }
+    }
+
+    features {
+        key: "_mol_id"
+        value: {
+            description: "The id of the molecule."
+            dtype: DT_INT64
         }
     }
 }

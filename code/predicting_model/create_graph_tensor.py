@@ -145,12 +145,12 @@ def fill_dictionary(key, mol_id, mol, shift_data=""):
         iter_H = 0
 
         for n, atom in enumerate(mol.GetAtoms()):
-            atom_dict = {"mol_id":[], "atom_index":[], "atom_symbol":[], "chiral_tag":[], "degree":[], 
+            atom_dict = {"mol_id":[], "atom_idx":[], "atom_symbol":[], "chiral_tag":[], "degree":[], 
                  "formal_charge":[], "hybridization":[], "is_aromatic":[], 
                  "no_implicit":[], "num_Hs":[], "valence":[], "Shift":[], "Shape":[]}
 
             atom_dict["mol_id"] = mol_id
-            atom_dict["atom_index"] = atom.GetIdx()
+            atom_dict["atom_idx"] = atom.GetIdx()
             atom_symbol = atom.GetSymbol()
             atom_dict["atom_symbol"] = atom_symbol
             atom_dict["chiral_tag"] = atom.GetChiralTag()
@@ -169,7 +169,7 @@ def fill_dictionary(key, mol_id, mol, shift_data=""):
                     atom_dict["Shape"] = atomSplit[3]
                     iter_H += 1
                 elif key == 1:  # using DFT data
-                    atom_dict["Shift"] = shift_data.loc[(shift_data['mol_id'] == mol_id) & (shift_data['atom_index'] == n)]["Shift"].values[0]
+                    atom_dict["Shift"] = shift_data.loc[(shift_data['mol_id'] == mol_id) & (shift_data['atom_idx'] == n)]["Shift"].values[0]
                     atom_dict["Shape"] = "-"
                 elif key == 2: # using molecules without labels (for making new predictions)
                     atom_dict["Shift"] = 0.0
@@ -248,7 +248,7 @@ def one_hot_encode_shape(shape_symbols):            # The output will be a matri
 
 def create_graph_tensor_shift(mol_data, atom_data, bond_data):
     H_indices = atom_data.index[atom_data["atom_symbol"] == "H"].tolist()
-    atom_nums = one_hot_encode_atoms(atom_data["atom_symbol"])
+    atom_syms = one_hot_encode_atoms(atom_data["atom_symbol"])
     chiral_tags = tf.one_hot(atom_data["chiral_tag"], 9)
     hybridizations = tf.one_hot(atom_data["hybridization"], 9)
     stereo = tf.one_hot(bond_data["stereo"], 8)
@@ -256,12 +256,14 @@ def create_graph_tensor_shift(mol_data, atom_data, bond_data):
 
     graph_tensor = tfgnn.GraphTensor.from_pieces(
 
-        context = tfgnn.Context.from_fields(features = {"smiles": mol_data["smiles"]}),
+        context = tfgnn.Context.from_fields(features = {"smiles": mol_data["smiles"],
+                                                        "_mol_id": mol_data["mol_id"]}),
 
         node_sets = {
             "atom": tfgnn.NodeSet.from_fields(
                 sizes = mol_data["n_atoms"],
-                features = {"atom_num": atom_nums,
+                features = {"_atom_idx": atom_data["atom_idx"],
+                            "atom_sym": atom_syms,
                             "chiral_tag": chiral_tags,
                             "degree": atom_data["degree"],
                             "formal_charge": atom_data["formal_charge"],
@@ -304,7 +306,7 @@ def create_graph_tensor_shift(mol_data, atom_data, bond_data):
 
 def create_graph_tensor_shape(mol_data, atom_data, bond_data):
     H_indices = atom_data.index[atom_data["atom_symbol"] == "H"].tolist()
-    atom_nums = one_hot_encode_atoms(atom_data["atom_symbol"])
+    atom_syms = one_hot_encode_atoms(atom_data["atom_symbol"])
     chiral_tags = tf.one_hot(atom_data["chiral_tag"], 9)
     hybridizations = tf.one_hot(atom_data["hybridization"], 9)
     stereo = tf.one_hot(bond_data["stereo"], 8)
@@ -318,7 +320,7 @@ def create_graph_tensor_shape(mol_data, atom_data, bond_data):
         node_sets = {
             "atom": tfgnn.NodeSet.from_fields(
                 sizes = mol_data["n_atoms"],
-                features = {"atom_num": atom_nums,
+                features = {"atom_sym": atom_syms,
                             "chiral_tag": chiral_tags,
                             "degree": atom_data["degree"],
                             "formal_charge": atom_data["formal_charge"],
@@ -419,4 +421,4 @@ if __name__ == "__main__":
     #path = "/home/s3665828/Documents/Masters_Thesis/repo/CASCADE/"
     path = "C:/Users/niels/Documents/repo/CASCADE/"
 
-    process_samples(1, path, file="data/own_data/small_dataset.txt", name="small", type="shift")
+    process_samples(0, path, file="data/own_data/small_dataset.txt", name="small", type="shift")
