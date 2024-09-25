@@ -6,6 +6,7 @@ import pandas as pd
 from tqdm import tqdm
 from rdkit import Chem
 from rdkit.Chem import AllChem
+from rdkit.Chem import Draw
 from tensorflow_gnn import runner
 import keras.backend as K
 import plotly.express as px
@@ -149,7 +150,7 @@ def check_distance_matrix():
 
 def evaluate_model(dataset, model):
     num_samples = 10
-    output = {"molecule":[], "mae":[], "reverse_mae":[]}
+    output = {"mol_id":[], "molecule":[], "mae":[], "reverse_mae":[]}
     for i in range(10):
         examples = next(iter(dataset.batch(num_samples)))
         example = tf.reshape(examples[i], (1,))
@@ -159,9 +160,11 @@ def evaluate_model(dataset, model):
         logits = output_dict["shifts"]
         labels = tf.transpose(input_graph.node_sets["_readout"].__getitem__("shift").to_tensor())
         molecule = input_graph.context.__getitem__("smiles")
+        mol_id = input_graph.context.__getitem__("_mol_id")
         mae = tf.math.reduce_mean(tf.keras.losses.MeanAbsoluteError().call(y_true=labels, y_pred=logits))
         reverse_mae = tf.math.reduce_mean(tf.keras.losses.MeanAbsoluteError().call(y_true=K.reverse(labels,axes=0), y_pred=logits))
         
+        output["mol_id"].append(tf.get_static_value(mol_id)[0][0])
         output["molecule"].append(tf.get_static_value(molecule).astype(str))
         output["mae"].append(tf.get_static_value(mae))
         output["reverse_mae"].append(tf.get_static_value(reverse_mae))
@@ -173,8 +176,10 @@ def evaluate_model(dataset, model):
     #print(output_df)
 
 def evaluate_model_shifts(dataset, model, path):
-    num_samples = 90780
-    output = {"molecule":[], "target_shift":[], "predicted_shift":[], "mae":[]}
+    num_samples = 10
+    output = {"molecule":[], "index":[], "target_shift":[], "predicted_shift":[], "mae":[]}
+    signature_fn = model.signatures[
+        tf.saved_model.DEFAULT_SERVING_SIGNATURE_DEF_KEY]
 
     for i in range(num_samples):
         examples = next(iter(dataset.batch(num_samples)))
@@ -184,10 +189,19 @@ def evaluate_model_shifts(dataset, model, path):
         output_dict = signature_fn(**input_dict)
         logits = output_dict["shifts"]
         labels = tf.transpose(input_graph.node_sets["_readout"].__getitem__("shift").to_tensor())
-        molecule = input_graph.context.__getitem__("smiles")
+        smiles = input_graph.context.__getitem__("smiles")
+        smiles = tf.get_static_value(smiles).astype(str)[0][0]
+        index = input_graph.node_sets["atom"].__getitem__("_atom_idx")
+
+        mol = Chem.MolFromSmiles(smiles)
+        mol = Chem.AddHs(mol)
+        for atom in mol.GetAtoms():
+            if atom.GetSymbol() == "H":
+                output["index"].append(atom.GetIdx())
+        
         for j, predicted_shift in enumerate(logits):
             target_shift = labels[j]
-            output["molecule"].append(tf.get_static_value(molecule).astype(str)[0][0])
+            output["molecule"].append(smiles)
             output["target_shift"].append(tf.get_static_value(target_shift)[0])
             output["predicted_shift"].append(tf.get_static_value(predicted_shift)[0])
             mae = tf.math.reduce_mean(tf.keras.losses.MeanAbsoluteError().call(y_true=target_shift, y_pred=predicted_shift))
@@ -234,19 +248,30 @@ def evaluate_sample(dataset, model, index):
     output["reverse_mae"].append(tf.get_static_value(reverse_mae))
 
     output_df = pd.DataFrame.from_dict(output)
+    print(output["molecule"])
     print("Molecule labels")
     print(labels)
     print("Model shifts")
     print(logits)
     print(output_df)
 
-def plot_results(results):
+def plot_results(path):
+    results = pd.read_csv(path + "data/own_data/data_results.csv.gz", index_col=0)
     fig = px.scatter(results, x=results.index, y='mae')
     '''fig.add_trace(go.Scatter(x=results.index, y=results['mae'], mode='markers', name='mae'))
     fig.add_trace(go.Scatter(x=results.index, y=results['reverse_mae'], mode='markers', name='reverse_mae'))'''
     fig.update_layout(xaxis=dict(type='category'))
     plot = DynamicPlot(fig)
     plot.show()
+
+def plot_shift_errors(path):
+    results = pd.read_csv(path + "data/own_data/shift_results.csv.gz", index_col=0)
+    fig = px.histogram(results, x='target_shift', y='mae', nbins=50, histfunc='avg')
+    plot = DynamicPlot(fig)
+    plot.show()
+
+    results = results.sort_values(by=['mae'], ascending=False)
+    print(results[:100])
 
 def plot_shifts(path):
     atom_data = pd.read_csv(path + "code/predicting_model/Shift/DFTNN/own_data_atom.csv.gz")
@@ -255,49 +280,59 @@ def plot_shifts(path):
     plot = DynamicPlot(fig)
     plot.show()
 
+def print_stats(path):
+    results = pd.read_csv(path + "data/own_data/shift_results.csv.gz", index_col=0)
+    results["reverse_better"] =  np.where(results['reverse_mae'] < results["mae"], "yes", "no")
+    print("Average MAE:\n" + str(results.loc[:, "mae"].mean()))
+    print("Number of samples where reverse is better: " + str(results["reverse_better"].value_counts()[1]))
+    print("Samples where reverse is better: " + str(results[results["reverse_better"]=="yes"]))
+    print("Number of samples where MAE > 1: " + str(len(results[results["mae"]>1])))
+    print("Samples where MAE > 1:\n" + str(results[results["mae"]>1]))
+
+def visualize_errors(path):
+    results = pd.read_csv(path + "data/own_data/shift_results.csv.gz", index_col=0)
+    print(results)
+    smiles = results["molecule"][0]
+    mol = Chem.MolFromSmiles(smiles)
+    mol = Chem.AddHs(mol)
+    AllChem.Compute2DCoords(mol)
+    d = Draw.rdMolDraw2D.MolDraw2DCairo(500, 500)
+    atom_data = results.loc[results["molecule"] == smiles]
+    highlightAtoms = []
+    for atom in mol.GetAtoms():
+        index = atom.GetIdx()
+        matching_data = atom_data.loc[atom_data["index"] == index]
+        if not matching_data.empty:
+            atom.SetProp('atomNote', str(matching_data["mae"].values[0]))
+            highlightAtoms.append(index)
+
+    colours=[(1.0, 0.0, 0.0),(0.0, 1.0, 0.0)]
+    atom_cols = {}
+    for i, atom in enumerate(highlightAtoms):
+        atom_cols[atom] = colours[i]
+
+    Draw.rdMolDraw2D.PrepareAndDrawMolecule(d, mol, highlightAtoms=highlightAtoms, highlightAtomColors=atom_cols)
+    d.FinishDrawing()
+    d.WriteDrawingText(path + "mol.png")
+
 
 if __name__ == "__main__":
-    path = "/home/s3665828/Documents/Masters_Thesis/repo/CASCADE/"
+    #path = "/home/s3665828/Documents/Masters_Thesis/repo/CASCADE/"
     #path = "/home1/s3665828/code/CASCADE/"
-    #path = "C:/Users/niels/Documents/repo/CASCADE/"
+    path = "C:/Users/niels/Documents/repo/CASCADE/"
 
     graph_schema = tfgnn.read_schema(path + "code/predicting_model/GraphSchema.pbtxt")
     graph_spec = tfgnn.create_graph_spec_from_schema_pb(graph_schema)
-    model = tf.saved_model.load(path + "code/predicting_model/Shift/DFTNN/gnn/models/shift_model")
+    model = tf.saved_model.load(path + "code/predicting_model/Shift/DFTNN/gnn/models/DFT_model")
     signature_fn = model.signatures[
         tf.saved_model.DEFAULT_SERVING_SIGNATURE_DEF_KEY]
     
-    dataset_provider = runner.TFRecordDatasetProvider(filenames=[path + "data/own_data/all_data.tfrecords"])
+    dataset_provider = runner.TFRecordDatasetProvider(filenames=[path + "data/own_data/shift/DFT_train.tfrecords"])
     dataset = dataset_provider.get_dataset(tf.distribute.InputContext())
 
-    evaluate_model_shifts(dataset, model, path)
+    visualize_errors(path)
 
+    #evaluate_model_shifts(dataset, model, path)
     #evaluate_model(dataset, model)
-
-    #results = pd.read_csv(path + "data/own_data/data_results.csv.gz", index_col=0)
-    #results = results.sort_values(by='mae', ascending=False)
-    #evaluate_sample(dataset, model, 540)
-    #evaluate_sample(dataset, model, 87813)
-    #evaluate_sample(dataset, model, 69168)
-    #plot_results(results)
-
-    #results["reverse_better"] =  np.where(results['reverse_mae'] < results["mae"], "yes", "no")
-    #print("Average MAE:\n" + str(results.loc[:, "mae"].mean()))
-    #print("Number of samples where reverse is better: " + str(results["reverse_better"].value_counts()[1]))
-    #print("Samples where reverse is better: " + str(results[results["reverse_better"]=="yes"]))
-    #print("Number of samples where MAE > 1: " + str(len(results[results["mae"]>1])))
-    #print("Samples where MAE > 1:\n" + str(results[results["mae"]>1]))
-    #plot_results(results)
-
-    
-    #evaluate_model(dataset, model)
-    #check_sample(dataset)
-
-
-    #check_data_nodes(dataset, graph_spec)
-    #check_data_edges(dataset, graph_spec)
-
-    
-    #graph = tfgnn.keras.layers.MapFeatures(node_sets_fn=set_initial_node_state, edge_sets_fn=set_initial_edge_state)(graph)
-    
-    #check_zero(input_graph)
+    #evaluate_sample(dataset, model, 7)
+    #plot_shift_errors(path)

@@ -169,7 +169,7 @@ def fill_dictionary(key, mol_id, mol, shift_data=""):
                     atom_dict["Shape"] = atomSplit[3]
                     iter_H += 1
                 elif key == 1:  # using DFT data
-                    atom_dict["Shift"] = shift_data.loc[(shift_data['mol_id'] == mol_id) & (shift_data['atom_idx'] == n)]["Shift"].values[0]
+                    atom_dict["Shift"] = shift_data.loc[(shift_data['mol_id'] == mol_id) & (shift_data['atom_index'] == n)]["Shift"].values[0]
                     atom_dict["Shape"] = "-"
                 elif key == 2: # using molecules without labels (for making new predictions)
                     atom_dict["Shift"] = 0.0
@@ -421,4 +421,4 @@ if __name__ == "__main__":
     #path = "/home/s3665828/Documents/Masters_Thesis/repo/CASCADE/"
     path = "C:/Users/niels/Documents/repo/CASCADE/"
 
-    process_samples(0, path, file="data/own_data/small_dataset.txt", name="small", type="shift")
+    process_samples(1, path, file="data/own_data/own_data_with_id.txt", name="own_data", type="shift")

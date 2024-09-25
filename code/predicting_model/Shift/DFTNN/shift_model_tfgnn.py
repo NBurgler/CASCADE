@@ -37,7 +37,7 @@ def rbf_expansion(distances, mu=0, delta=0.1, kmax=256):
 
 def set_initial_node_state(node_set, *, node_set_name):
     # embed the different input features
-    atom_num_embedding = tf.keras.layers.Dense(1, name="atom_num_embedding")(node_set["atom_num"])
+    atom_sym_embedding = tf.keras.layers.Dense(1, name="atom_sym_embedding")(node_set["atom_sym"])
     chiral_tag_embedding = tf.keras.layers.Dense(2, name="chiral_tag_embedding")(node_set["chiral_tag"])
     hybridization_embedding = tf.keras.layers.Dense(2, name="hybridization_embedding")(node_set["hybridization"])
     degree_embedding = tf.keras.layers.Embedding(5, 2, name="degree_embedding")(node_set["degree"])
@@ -48,7 +48,7 @@ def set_initial_node_state(node_set, *, node_set_name):
     valence_embedding = tf.keras.layers.Embedding(7, 3, name="valence_embedding")(node_set["valence"])
 
     # concatenate the embeddings
-    concatenated_embedding = tf.keras.layers.Concatenate()([atom_num_embedding, chiral_tag_embedding,
+    concatenated_embedding = tf.keras.layers.Concatenate()([atom_sym_embedding, chiral_tag_embedding,
                                                             hybridization_embedding, degree_embedding,
                                                             formal_charge_embedding, is_aromatic_embedding,
                                                             no_implicit_embedding, num_Hs_embedding,
@@ -137,15 +137,16 @@ def _build_model(graph_tensor_spec):
 
 
 if __name__ == "__main__":
-    path = "/home/s3665828/Documents/Masters_Thesis/repo/CASCADE/"
-    #path = "C:/Users/niels/Documents/repo/CASCADE/"
+    #path = "/home/s3665828/Documents/Masters_Thesis/repo/CASCADE/"
+    path = "C:/Users/niels/Documents/repo/CASCADE/"
+    
     batch_size = 64
     initial_learning_rate = 5E-4
     epochs = 1
     epoch_divisor = 1
 
-    train_path = path + "data/own_data/DFT_data_train.tfrecords"
-    val_path = path + "data/own_data/DFT_data_valid.tfrecords"
+    train_path = path + "data/own_data/shift/DFT_train.tfrecords"
+    val_path = path + "data/own_data/shift/DFT_valid.tfrecords"
 
 
     #train_size = 8
@@ -171,7 +172,7 @@ if __name__ == "__main__":
     train_ds = train_ds.batch(batch_size=batch_size).repeat()
     val_ds = val_ds.batch(batch_size=batch_size)
 
-    graph_schema = tfgnn.read_schema("code/predicting_model/GraphSchema.pbtxt")
+    graph_schema = tfgnn.read_schema(path + "code/predicting_model/GraphSchema.pbtxt")
     example_input_spec = tfgnn.create_graph_spec_from_schema_pb(graph_schema)
     train_ds = train_ds.map(tfgnn.keras.layers.ParseExample(example_input_spec))
     val_ds = val_ds.map(tfgnn.keras.layers.ParseExample(example_input_spec))
