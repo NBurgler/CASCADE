@@ -11,6 +11,14 @@ from tensorflow_gnn import runner
 import keras.backend as K
 import plotly.express as px
 from lenspy import DynamicPlot
+import matplotlib.pyplot as plt
+from matplotlib.colors import LinearSegmentedColormap
+from matplotlib import gridspec
+
+import sys
+import os
+sys.path.append('code')
+from predicting_model.create_graph_tensor import process_samples
 
 def check_zero(input_graph):
     i = 0
@@ -243,7 +251,7 @@ def evaluate_sample(dataset, model, index):
     mae = tf.math.reduce_mean(tf.keras.losses.MeanAbsoluteError().call(y_true=labels, y_pred=logits))
     reverse_mae = tf.math.reduce_mean(tf.keras.losses.MeanAbsoluteError().call(y_true=K.reverse(labels,axes=0), y_pred=logits))
     
-    output["molecule"].append(tf.get_static_value(molecule).astype(str))
+    output["molecule"].append(tf.get_static_value(molecule).astype(str)[0][0])
     output["mae"].append(tf.get_static_value(mae))
     output["reverse_mae"].append(tf.get_static_value(reverse_mae))
 
@@ -254,6 +262,31 @@ def evaluate_sample(dataset, model, index):
     print("Model shifts")
     print(logits)
     print(output_df)
+
+def evaluate_molecule(model, smiles):
+    output = {"molecule":[], "index":[], "predicted_shift":[]}
+    example = process_samples(2, "", smiles="C#CCC1CCOCO1")
+    example = tf.reshape(example, (1,))
+    input_graph = tfgnn.parse_example(graph_spec, example)
+    input_dict = {"examples": example}
+    output_dict = signature_fn(**input_dict)
+    logits = output_dict["shifts"]
+
+    molecule = input_graph.context.__getitem__("smiles")
+
+    mol = Chem.MolFromSmiles(smiles)
+    mol = Chem.AddHs(mol)
+    for atom in mol.GetAtoms():
+        if atom.GetSymbol() == "H":
+            output["index"].append(atom.GetIdx())
+    
+    for shift in logits:
+        output["molecule"].append(tf.get_static_value(molecule).astype(str)[0][0])
+        output["predicted_shift"].append(tf.get_static_value(shift)[0])
+
+    output_df = pd.DataFrame.from_dict(output)
+    print(output_df)
+    return output_df
 
 def plot_results(path):
     results = pd.read_csv(path + "data/own_data/data_results.csv.gz", index_col=0)
@@ -289,31 +322,88 @@ def print_stats(path):
     print("Number of samples where MAE > 1: " + str(len(results[results["mae"]>1])))
     print("Samples where MAE > 1:\n" + str(results[results["mae"]>1]))
 
-def visualize_errors(path):
-    results = pd.read_csv(path + "data/own_data/shift_results.csv.gz", index_col=0)
-    print(results)
+def visualize_shifts(path, results):
     smiles = results["molecule"][0]
     mol = Chem.MolFromSmiles(smiles)
     mol = Chem.AddHs(mol)
     AllChem.Compute2DCoords(mol)
     d = Draw.rdMolDraw2D.MolDraw2DCairo(500, 500)
-    atom_data = results.loc[results["molecule"] == smiles]
-    highlightAtoms = []
     for atom in mol.GetAtoms():
         index = atom.GetIdx()
-        matching_data = atom_data.loc[atom_data["index"] == index]
+        matching_data = results.loc[results["index"] == index]
         if not matching_data.empty:
-            atom.SetProp('atomNote', str(matching_data["mae"].values[0]))
-            highlightAtoms.append(index)
-
-    colours=[(1.0, 0.0, 0.0),(0.0, 1.0, 0.0)]
-    atom_cols = {}
-    for i, atom in enumerate(highlightAtoms):
-        atom_cols[atom] = colours[i]
-
-    Draw.rdMolDraw2D.PrepareAndDrawMolecule(d, mol, highlightAtoms=highlightAtoms, highlightAtomColors=atom_cols)
+            rounded_shift = round(matching_data["predicted_shift"].values[0], 2)
+            atom.SetProp('atomNote', str(rounded_shift))
+    
+    Draw.rdMolDraw2D.PrepareAndDrawMolecule(d, mol)
     d.FinishDrawing()
-    d.WriteDrawingText(path + "mol.png")
+    d.WriteDrawingText(path + "data/own_data/mol.png")
+
+    mol_image = plt.imread(path + "data/own_data/mol.png")
+    fig = plt.figure(figsize=(10,8))
+    fig = plt.imshow(mol_image)
+    plt.axis('off')
+    plt.show()
+    
+def visualize_errors(path, results):
+    for smiles in results["molecule"].unique():
+        mol = Chem.MolFromSmiles(smiles)
+        mol = Chem.AddHs(mol)
+        AllChem.Compute2DCoords(mol)
+        d = Draw.rdMolDraw2D.MolDraw2DCairo(500, 500)
+        atom_data = results.loc[results["molecule"] == smiles]
+        highlightAtoms = []
+                    #  red             yellow           green
+        colours=[(1.0, 0.0, 0.0),(1.0, 1.0, 0.0), (0.0, 1.0, 0.0)]
+        atom_cols = {}
+
+        for atom in mol.GetAtoms():
+            index = atom.GetIdx()
+            matching_data = atom_data.loc[atom_data["index"] == index]
+            if not matching_data.empty:
+                mae = matching_data["mae"].values[0]
+                rounded_shift = round(matching_data["predicted_shift"].values[0], 2)
+                atom.SetProp('atomNote', str(rounded_shift))
+                highlightAtoms.append(index)
+                if mae <= 1.0:   # interpolate between green and yellow
+                    yellow = colours[1]
+                    green = colours[2]
+                    colour = (green[0] + (yellow[0] * mae), green[1], green[2])
+                    atom_cols[index] = colour
+                else:           # interpolate between yellow and red
+                    yellow = colours[1]
+                    red = colours[0]
+                    colour = (red[0], max(red[1] + (yellow[1] - (1.0 * (mae/10.0))), 0), red[2])
+                    atom_cols[index] = colour
+
+        Draw.rdMolDraw2D.PrepareAndDrawMolecule(d, mol, highlightAtoms=highlightAtoms, highlightAtomColors=atom_cols)
+        d.FinishDrawing()
+        d.WriteDrawingText(path + "data/own_data/mol.png")
+
+        mol_image = plt.imread(path + "data/own_data/mol.png")
+        colormap = plt.imread(path + "data/own_data/colormap.png")
+
+        fig = plt.figure(figsize=(10,8))
+        gs = gridspec.GridSpec(2, 1, height_ratios=[8, 1])
+        ax0 = plt.subplot(gs[0])
+        ax0.imshow(mol_image)
+        plt.axis('off')
+        ax1 = plt.subplot(gs[1])
+        ax1.imshow(colormap)
+        plt.axis('off')
+
+        plt.tight_layout()
+        plt.show()
+
+
+    '''x = [0.0, 1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0]
+    y = [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1]
+    colours = ((0.0, colours[2]), (0.1, colours[1]), (1.0, colours[0]))
+    
+    cmap = LinearSegmentedColormap.from_list("MAE", colours, 1000)
+    plt.scatter(x=x, y=y, c=x, cmap=cmap)
+    plt.colorbar(label="MAE", orientation="horizontal")
+    plt.show()'''
 
 
 if __name__ == "__main__":
@@ -330,7 +420,9 @@ if __name__ == "__main__":
     dataset_provider = runner.TFRecordDatasetProvider(filenames=[path + "data/own_data/shift/DFT_train.tfrecords"])
     dataset = dataset_provider.get_dataset(tf.distribute.InputContext())
 
-    visualize_errors(path)
+    
+    #visualize_shifts(path, evaluate_molecule(model, "C#CCC1CCOCO1"))
+    visualize_errors(path, pd.read_csv(path + "data/own_data/shift_results.csv.gz", index_col=0))
 
     #evaluate_model_shifts(dataset, model, path)
     #evaluate_model(dataset, model)
