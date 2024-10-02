@@ -19,11 +19,12 @@ from itertools import islice
 
 from nfp.preprocessing import MolAPreprocessor, GraphSequence
 
+path = "C:/Users/niels/Documents/repo/CASCADE/"
 dataset = "cascade"
 
 if (dataset == "cascade"):
     mols = []
-    with gzip.open('data/DFT8K/DFT8K.csv.gz', 'r') as sdfile:
+    with gzip.open(path + 'data/DFT8K/DFT8K.csv.gz', 'r') as sdfile:
         mol_supplier = ForwardSDMolSupplier(sdfile, removeHs=False, sanitize=False)
         for mol in tqdm(mol_supplier):
             if mol:
@@ -32,9 +33,10 @@ if (dataset == "cascade"):
     mols = pd.DataFrame(mols, columns=['mol_id', 'Mol', 'n_atoms'])
     mols = mols.set_index('mol_id', drop=True)
 
-    df = pd.read_csv('data/DFT8K/DFT8K.csv.gz', index_col=0)
-    #only choose C and H
-    df = df.loc[df.atom_type == 1]
+    df = pd.read_csv(path + 'data/DFT8K/DFT8K.csv.gz', index_col=0)
+    #only choose H
+    df = df.loc[df['atom_type'] == 1]
+    print(df)
 
 elif (dataset == "own"):
     mols = pd.read_csv('code/predicting_model/Shift/DFTNN/own_data_mol.csv.gz', index_col=0)
@@ -83,8 +85,10 @@ def to_C(atom):
     else:
         return False
 
-df['Mol'] = mols.reindex(df.mol_id).Mol.values
+print(mols)
+df['Mol'] = mols.reindex(df['mol_id'])['Mol'].values
 df = df.dropna()
+print
 df = df.loc[df.apply(lambda x: to_C(x['Mol'].GetAtomWithIdx(x['atom_index'])), axis=1).values]
 
 grouped_df = df.groupby(['mol_id'])
@@ -110,9 +114,9 @@ valid = mols.reindex(valid.index).join(valid[['atom_index', 'Shift']])
 train = mols.reindex(train.index).join(train[['atom_index', 'Shift']])
 
 if (dataset == "cascade"):
-    test.to_pickle('code/predicting_model/Shift/DFTNN/cascade_test.pkl.gz', compression='gzip')
-    valid.to_pickle('code/predicting_model/Shift/DFTNN/cascade_valid.pkl.gz', compression='gzip')
-    train.to_pickle('code/predicting_model/Shift/DFTNN/cascade_train.pkl.gz', compression='gzip')
+    test.to_pickle(path + 'code/predicting_model/Shift/DFTNN/cascade_test.pkl.gz', compression='gzip')
+    valid.to_pickle(path + 'code/predicting_model/Shift/DFTNN/cascade_valid.pkl.gz', compression='gzip')
+    train.to_pickle(path + 'code/predicting_model/Shift/DFTNN/cascade_train.pkl.gz', compression='gzip')
 elif (dataset == "own"):
     test.to_pickle('code/predicting_model/Shift/DFTNN/own_test.pkl.gz', compression='gzip')
     valid.to_pickle('code/predicting_model/Shift/DFTNN/own_valid.pkl.gz', compression='gzip')
@@ -135,7 +139,7 @@ inputs_test = preprocessor.predict(Mol_iter(test))
 import pickle
 
 if (dataset == "cascade"):  
-    with open('code/predicting_model/Shift/DFTNN/cascade_processed_inputs.p', 'wb') as file:        
+    with open(path + 'code/predicting_model/Shift/DFTNN/cascade_processed_inputs.p', 'wb') as file:        
         pickle.dump({
             'inputs_train': inputs_train,
             'inputs_valid': inputs_valid,
