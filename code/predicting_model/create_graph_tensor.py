@@ -1,3 +1,4 @@
+import math
 import numpy as np
 import pandas as pd
 import tensorflow as tf
@@ -44,6 +45,7 @@ def create_dictionary(key, path, save=False, filepath="", name="", smiles=""):
     mol_list = []
     atom_list = []
     bond_list = []
+    distance_list = []
 
     if key == 0:    # own data
         file = open(path + filepath, 'r')
@@ -57,10 +59,11 @@ def create_dictionary(key, path, save=False, filepath="", name="", smiles=""):
             mol_id = sampleSplit[0]
             smiles = sampleSplit[1]
             mol = Chem.MolFromSmiles(smiles)
-            mol_entry, atom_entry, bond_entry = fill_dictionary(key, mol_id, mol, shift_data=sampleSplit)
+            mol_entry, atom_entry, bond_entry, distance_entry = fill_dictionary(key, mol_id, mol, shift_data=sampleSplit)
             mol_list.extend(mol_entry)
             atom_list.extend(atom_entry)
             bond_list.extend(bond_entry)
+            distance_list.extend(distance_entry)
 
     elif key == 1:    # DFT data
         with gzip.open(path + "data/DFT8K/DFT.sdf.gz", 'rb') as dft:
@@ -68,17 +71,19 @@ def create_dictionary(key, path, save=False, filepath="", name="", smiles=""):
             mol_suppl = Chem.ForwardSDMolSupplier(dft, removeHs=False)
             for mol in mol_suppl:
                 mol_id = int(mol.GetProp("_Name"))
-                mol_entry, atom_entry, bond_entry = fill_dictionary(key, mol_id, mol, shift_data=shift_df)
+                mol_entry, atom_entry, bond_entry, distance_entry = fill_dictionary(key, mol_id, mol, shift_data=shift_df)
                 mol_list.extend(mol_entry)
                 atom_list.extend(atom_entry)
                 bond_list.extend(bond_entry)
+                distance_list.extend(distance_entry)
 
     elif key == 2:  # single molecule
         mol = Chem.MolFromSmiles(smiles)
-        mol_entry, atom_entry, bond_entry = fill_dictionary(key, 0, mol)
+        mol_entry, atom_entry, bond_entry, distance_entry = fill_dictionary(key, 0, mol)
         mol_list.extend(mol_entry)
         atom_list.extend(atom_entry)
         bond_list.extend(bond_entry)
+        distance_list.extend(distance_entry)
 
     # convert the list of dicts to a single dict
     mol_dict = {}
@@ -93,14 +98,20 @@ def create_dictionary(key, path, save=False, filepath="", name="", smiles=""):
     for k in bond_list[0].keys():
         bond_dict[k] = tuple(bond_dict[k] for bond_dict in bond_list)
 
+    distance_dict = {}
+    for k in distance_list[0].keys():
+        distance_dict[k] = tuple(distance_dict[k] for distance_dict in distance_list)
+
     # convert the dicts to pandas dataframes
     mol_df = pd.DataFrame.from_dict(mol_dict)
     atom_df = pd.DataFrame.from_dict(atom_dict)
     bond_df = pd.DataFrame.from_dict(bond_dict)
+    distance_df = pd.DataFrame.from_dict(distance_dict)
 
     print(mol_df)
     print(atom_df)
     print(bond_df)
+    print(distance_df)
 
     bond_df["norm_distance"] = (bond_df["distance"] - bond_df["distance"].mean())/bond_df["distance"].std()
 
@@ -108,14 +119,18 @@ def create_dictionary(key, path, save=False, filepath="", name="", smiles=""):
         mol_df.to_csv(path + "code/predicting_model/Shift/DFTNN/" + name + "_mol.csv.gz", compression='gzip')
         atom_df.to_csv(path + "code/predicting_model/Shift/DFTNN/" + name + "_atom.csv.gz", compression='gzip')
         bond_df.to_csv(path + "code/predicting_model/Shift/DFTNN/" + name + "_bond.csv.gz", compression='gzip')
+        distance_df.to_csv(path + "code/predicting_model/Shift/DFTNN/" + name + "_distance.csv.gz", compression='gzip')
 
-    return mol_df, atom_df, bond_df
+    return mol_df, atom_df, bond_df, distance_df
     
 
 def fill_dictionary(key, mol_id, mol, shift_data=""):
+    cutoff_distance = 5
+
     mol_list = []
     atom_list = []
     bond_list = []
+    distance_list = []
 
     mol_dict = {"mol_id":[], "smiles":[], "n_atoms":[], "n_bonds":[], "n_pro":[]}
     
@@ -184,6 +199,16 @@ def fill_dictionary(key, mol_id, mol, shift_data=""):
 
             atom_list.append(atom_dict)
 
+            for target, distance in enumerate(distance_matrix[n]):
+                distance_dict = {"mol_id":[], "distance":[], "source":[], "target":[]}
+                distance_dict["mol_id"] = mol_id
+                distance_dict["source"] = n
+                distance_dict["target"] = target
+                distance_dict["distance"] = distance
+                if distance != 0 and distance < cutoff_distance:
+                    distance_list.append(distance_dict)
+            
+
         for n, bond in enumerate(mol.GetBonds()):
             bond_dict = {"mol_id":[], "bond_type":[], "distance":[], "is_conjugated":[], 
                  "stereo":[], "source":[], "target":[]}
@@ -201,7 +226,7 @@ def fill_dictionary(key, mol_id, mol, shift_data=""):
 
             bond_list.append(bond_dict)
 
-    return mol_list, atom_list, bond_list
+    return mol_list, atom_list, bond_list, distance_list
     
 
 def one_hot_encode_atoms(atom_symbols):
@@ -249,7 +274,7 @@ def one_hot_encode_shape(shape_symbols):            # The output will be a matri
     return one_hot_shapes
 
 
-def create_graph_tensor_shift(mol_data, atom_data, bond_data):
+def create_graph_tensor_shift(mol_data, atom_data, bond_data, distance_data):
     H_indices = atom_data.index[atom_data["atom_symbol"] == "H"].tolist()
     atom_syms = one_hot_encode_atoms(atom_data["atom_symbol"])
     chiral_tags = tf.one_hot(atom_data["chiral_tag"], 9)
@@ -293,6 +318,13 @@ def create_graph_tensor_shift(mol_data, atom_data, bond_data):
                             "is_conjugated": bond_data["is_conjugated"].astype(int),
                             "stereo": stereo,
                             "normalized_distance": bond_data["norm_distance"]}
+            ),
+            "interatomic_distance": tfgnn.EdgeSet.from_fields(
+                sizes = mol_data["n_distance"],
+                adjacency = tfgnn.Adjacency.from_indices(
+                    source = ("atom", distance_data["source"]),
+                    target = ("atom", distance_data["target"])),
+                features = {"distance": distance_data["distance"].astype('float32')}
             ),
             "_readout/shift": tfgnn.EdgeSet.from_fields(
                 sizes = mol_data["n_pro"],
@@ -368,6 +400,7 @@ def create_tensors(path, name, type="shift"):
     mol_df = pd.read_csv(path + "code/predicting_model/Shift/DFTNN/"+ name + "_mol.csv.gz", index_col=0)
     atom_df = pd.read_csv(path + "code/predicting_model/Shift/DFTNN/"+ name + "_atom.csv.gz", index_col=0)
     bond_df = pd.read_csv(path + "code/predicting_model/Shift/DFTNN/"+ name + "_bond.csv.gz", index_col=0)
+    distance_df = pd.read_csv(path + "code/predicting_model/Shift/DFTNN/"+ name + "_distance.csv.gz", index_col=0)
 
     train_data = tf.io.TFRecordWriter(path + "data/own_data/" + type + "/" + name + "_train.tfrecords")
     test_data = tf.io.TFRecordWriter(path + "data/own_data/" + type + "/" + name + "_test.tfrecords")
@@ -375,30 +408,39 @@ def create_tensors(path, name, type="shift"):
     all_data = tf.io.TFRecordWriter(path + "data/own_data/" + type + "/all_" + name + "_data.tfrecords")
 
     total = len(mol_df)
+    n_train = math.floor(total*0.7)
+    n_valid = math.floor(total*0.15)
+    n_test = total - n_train - n_valid
+    print("Total dataset size: " + str(total))
+    print("Training set size: " + str(n_train))
+    print("Validation set size: " + str(n_valid))
+    print("Testing set size: " + str(n_test))
 
     for idx, mol_id in tqdm(enumerate(mol_df["mol_id"])):
         mol_data = mol_df.loc[mol_df["mol_id"] == mol_id]
         atom_data = atom_df.loc[atom_df["mol_id"] == mol_id]
         bond_data = bond_df.loc[bond_df["mol_id"] == mol_id]
+        distance_data = distance_df.loc[distance_df["mol_id"] == mol_id]
 
         if (mol_data['n_pro'].values == 0):
             continue
         
+        mol_data.insert(5, "n_distance", len(distance_data["distance"]))
         # make sure the index resets to 0 instead of continuing from the previous molecule
         atom_data = atom_data.reset_index(drop=True)
         if type == "shift":
-            graph_tensor = create_graph_tensor_shift(mol_data, atom_data, bond_data)
+            graph_tensor = create_graph_tensor_shift(mol_data, atom_data, bond_data, distance_data)
         elif type == "shape":
-            graph_tensor = create_graph_tensor_shape(mol_data, atom_data, bond_data)
+            graph_tensor = create_graph_tensor_shape(mol_data, atom_data, bond_data, distance_data)
         elif type == "couplings":
             print("not implemented yet")
             #graph_tensor = create_graph_tensor_couplings(mol_data, atom_data, bond_data)
         example = tfgnn.write_example(graph_tensor)
         
         all_data.write(example.SerializeToString())
-        if idx < total*0.7:
+        if idx < n_train:
             train_data.write(example.SerializeToString())
-        elif idx < total*0.85:
+        elif idx < n_train+n_valid:
             valid_data.write(example.SerializeToString())
         else:
             test_data.write(example.SerializeToString())
@@ -422,7 +464,7 @@ def process_samples(key, path, save=False, file="", name="", smiles="", type="sh
         create_dictionary(key, path, save, file, name)
         create_tensors(path, name, type)
     elif(key == 1):
-        create_dictionary(key, path, save, name="DFT") 
+        #create_dictionary(key, path, save, name="DFT") 
         create_tensors(path, name="DFT", type=type) # DFT data can only create shift tensors
     elif(key == 2):
         mol_df, atom_df, bond_df = create_dictionary(key, path, smiles=smiles, name=smiles)

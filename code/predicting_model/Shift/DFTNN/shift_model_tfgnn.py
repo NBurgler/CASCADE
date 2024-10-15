@@ -57,19 +57,22 @@ def set_initial_node_state(node_set, *, node_set_name):
     return tf.keras.layers.Dense(256, name="node_embedding")(concatenated_embedding)
 
 def set_initial_edge_state(edge_set, *, edge_set_name):
-    normalized_distance = tf.keras.layers.Reshape((-1,))(edge_set["normalized_distance"])
-    #normalized_distance = tf.keras.backend.print_tensor(normalized_distance, summarize=-1)
-    bond_type_embedding = tf.keras.layers.Dense(2, name="bond_type_embedding")(edge_set["bond_type"])
-    is_conjugated_embedding = tf.keras.layers.Embedding(2, 1, name="is_conjugated_embedding")(edge_set["is_conjugated"])
-    stereo_embedding = tf.keras.layers.Dense(2, name="stereo_embedding")(edge_set["stereo"])
-    #distance = tf.keras.backend.print_tensor(distance, summarize=-1)
-    #rbf_distance = rbf_expansion(edge_set["distance"])
-    #rbf_distance = tf.keras.layers.Reshape((-1,))(rbf_distance)
+    if edge_set_name == "bond":
+        normalized_distance = tf.keras.layers.Reshape((-1,))(edge_set["distance"])
+        #normalized_distance = tf.keras.backend.print_tensor(normalized_distance, summarize=-1)
+        bond_type_embedding = tf.keras.layers.Dense(2, name="bond_type_embedding")(edge_set["bond_type"])
+        is_conjugated_embedding = tf.keras.layers.Embedding(2, 1, name="is_conjugated_embedding")(edge_set["is_conjugated"])
+        stereo_embedding = tf.keras.layers.Dense(2, name="stereo_embedding")(edge_set["stereo"])
+        #distance = tf.keras.backend.print_tensor(distance, summarize=-1)
+        #rbf_distance = rbf_expansion(edge_set["distance"])
+        #rbf_distance = tf.keras.layers.Reshape((-1,))(rbf_distance)
 
-    #rbf_distance = tf.keras.backend.print_tensor(rbf_distance, summarize=-1)
-    # TODO: add other features
-    #distance = tf.keras.backend.print_tensor(distance, summarize=-1)
-    edge_embedding = tf.keras.layers.Concatenate()([normalized_distance, bond_type_embedding, is_conjugated_embedding, stereo_embedding])
+        #rbf_distance = tf.keras.backend.print_tensor(rbf_distance, summarize=-1)
+        # TODO: add other features
+        #distance = tf.keras.backend.print_tensor(distance, summarize=-1)
+        edge_embedding = tf.keras.layers.Concatenate()([normalized_distance, bond_type_embedding, is_conjugated_embedding, stereo_embedding])
+    elif edge_set_name == "interatomic_distance":
+        return rbf_expansion(edge_set["distance"])
     #edge_embedding = tf.keras.backend.print_tensor(edge_embedding, summarize=-1)
     return tf.keras.layers.Dense(256, name="edge_embedding")(edge_embedding)
 
@@ -140,9 +143,9 @@ if __name__ == "__main__":
     #path = "/home/s3665828/Documents/Masters_Thesis/repo/CASCADE/"
     path = "C:/Users/niels/Documents/repo/CASCADE/"
     
-    batch_size = 64
+    batch_size = 32
     initial_learning_rate = 5E-4
-    epochs = 1
+    epochs = 10
     epoch_divisor = 1
 
     train_path = path + "data/own_data/shift/DFT_train.tfrecords"
@@ -157,9 +160,13 @@ if __name__ == "__main__":
     #valid_size = 13622
     #test_size = 13622
 
-    train_size = 175324
-    valid_size = 37570
-    test_size =  37570
+    #train_size = 175324
+    #valid_size = 37570
+    #test_size =  37570
+
+    train_size = 5217
+    valid_size = 1118
+    test_size = 1119
 
     steps_per_epoch = train_size // batch_size // epoch_divisor
     validation_steps = valid_size // batch_size // epoch_divisor
@@ -216,6 +223,6 @@ if __name__ == "__main__":
     serving_logits = model(serving_model_input)
     serving_output = {"shifts": serving_logits}
     exported_model = tf.keras.Model(serving_input, serving_output)
-    exported_model.export(code_path + "gnn/models/DFT_model")
+    #exported_model.export(code_path + "gnn/models/DFT_model")
    
     #for layer in model.layers: print(layer.get_config(), layer.get_weights())
