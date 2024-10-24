@@ -57,12 +57,22 @@ def set_initial_node_state(node_set, *, node_set_name):
     return tf.keras.layers.Dense(256, name="node_embedding")(concatenated_embedding)
 
 def set_initial_edge_state(edge_set, *, edge_set_name):
-    normalized_distance = tf.keras.layers.Reshape((-1,))(edge_set["normalized_distance"])
-    bond_type_embedding = tf.keras.layers.Dense(2, name="bond_type_embedding")(edge_set["bond_type"])
-    is_conjugated_embedding = tf.keras.layers.Embedding(2, 1, name="is_conjugated_embedding")(edge_set["is_conjugated"])
-    stereo_embedding = tf.keras.layers.Dense(2, name="stereo_embedding")(edge_set["stereo"])
+    if edge_set_name == "bond":
+        normalized_distance = tf.keras.layers.Reshape((-1,))(edge_set["distance"])
+        #normalized_distance = tf.keras.backend.print_tensor(normalized_distance, summarize=-1)
+        bond_type_embedding = tf.keras.layers.Dense(2, name="bond_type_embedding")(edge_set["bond_type"])
+        is_conjugated_embedding = tf.keras.layers.Embedding(2, 1, name="is_conjugated_embedding")(edge_set["is_conjugated"])
+        stereo_embedding = tf.keras.layers.Dense(2, name="stereo_embedding")(edge_set["stereo"])
+        #distance = tf.keras.backend.print_tensor(distance, summarize=-1)
+        #rbf_distance = rbf_expansion(edge_set["distance"])
+        #rbf_distance = tf.keras.layers.Reshape((-1,))(rbf_distance)
 
-    edge_embedding = tf.keras.layers.Concatenate()([normalized_distance, bond_type_embedding, is_conjugated_embedding, stereo_embedding])
+        #rbf_distance = tf.keras.backend.print_tensor(rbf_distance, summarize=-1)
+        # TODO: add other features
+        #distance = tf.keras.backend.print_tensor(distance, summarize=-1)
+        edge_embedding = tf.keras.layers.Concatenate()([normalized_distance, bond_type_embedding, is_conjugated_embedding, stereo_embedding])
+    elif edge_set_name == "interatomic_distance":
+        return rbf_expansion(edge_set["distance"])
     #edge_embedding = tf.keras.backend.print_tensor(edge_embedding, summarize=-1)
     return tf.keras.layers.Dense(256, name="edge_embedding")(edge_embedding)
 
@@ -112,18 +122,18 @@ def _build_model(graph_tensor_spec):
 
     for _ in range(3):
         graph = tfgnn.keras.layers.GraphUpdate(
-            edge_sets={"bond": tfgnn.keras.layers.EdgeSetUpdate(
+            edge_sets={"interatomic_distance": tfgnn.keras.layers.EdgeSetUpdate(
                 next_state=tfgnn.keras.layers.ResidualNextState(node_updating())
             )},
             node_sets={"atom": tfgnn.keras.layers.NodeSetUpdate(
-                {"bond": tfgnn.keras.layers.Pool(
+                {"interatomic_distance": tfgnn.keras.layers.Pool(
                     reduce_type="mean|sum", 
                     tag=tfgnn.TARGET)},
                 next_state=tfgnn.keras.layers.ResidualNextState(edge_updating())
             )}   
         )(graph)
 
-    readout_features = tfgnn.keras.layers.StructuredReadout("shift")(graph)
+    readout_features = tfgnn.keras.layers.StructuredReadout("shape")(graph)
     logits = readout_layers()(readout_features)
 
     return tf.keras.Model(inputs=[input_graph], outputs=[logits])
