@@ -156,9 +156,9 @@ if __name__ == "__main__":
     #valid_size = 2
     #test_size = 2
 
-    #train_size = 63565
-    #valid_size = 13622
-    #test_size = 13622
+    #train_size = 63324
+    #valid_size = 13569
+    #test_size = 13571
 
     #train_size = 175324
     #valid_size = 37570

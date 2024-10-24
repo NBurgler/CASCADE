@@ -157,9 +157,9 @@ def check_distance_matrix():
     print(atom_data["Shift"][H_indices])
 
 def evaluate_model(dataset, model):
-    num_samples = 10
+    num_samples = 100
     output = {"mol_id":[], "molecule":[], "mae":[], "reverse_mae":[]}
-    for i in range(10):
+    for i in tqdm(range(num_samples)):
         examples = next(iter(dataset.batch(num_samples)))
         example = tf.reshape(examples[i], (1,))
         input_graph = tfgnn.parse_example(graph_spec, example)
@@ -180,16 +180,16 @@ def evaluate_model(dataset, model):
     
     output_df = pd.DataFrame.from_dict(output)
     print(output_df)
-    #output_df.to_csv("/home1/s3665828/code/CASCADE/data/own_data/data_results.csv.gz", compression='gzip')
+    #output_df.to_csv("/home1/s3665828/code/CASCADE/data/own_data/DFT_data_results.csv.gz", compression='gzip')
     #print(output_df)
 
 def evaluate_model_shifts(dataset, model, path):
-    num_samples = 10
+    num_samples = 7454
     output = {"molecule":[], "index":[], "target_shift":[], "predicted_shift":[], "mae":[]}
     signature_fn = model.signatures[
         tf.saved_model.DEFAULT_SERVING_SIGNATURE_DEF_KEY]
 
-    for i in range(num_samples):
+    for i in tqdm(range(5218, 5318)):
         examples = next(iter(dataset.batch(num_samples)))
         example = tf.reshape(examples[i], (1,))
         input_graph = tfgnn.parse_example(graph_spec, example)
@@ -201,8 +201,8 @@ def evaluate_model_shifts(dataset, model, path):
         smiles = tf.get_static_value(smiles).astype(str)[0][0]
         index = input_graph.node_sets["atom"].__getitem__("_atom_idx")
 
-        mol = Chem.MolFromSmiles(smiles)
-        mol = Chem.AddHs(mol)
+        mol = Chem.MolFromSmiles(smiles, sanitize=False)
+        #mol = Chem.AddHs(mol)
         for atom in mol.GetAtoms():
             if atom.GetSymbol() == "H":
                 output["index"].append(atom.GetIdx())
@@ -218,7 +218,7 @@ def evaluate_model_shifts(dataset, model, path):
     
     output_df = pd.DataFrame.from_dict(output)
     print(output_df)
-    output_df.to_csv(path + "data/own_data/shift_results.csv.gz", compression='gzip')
+    output_df.to_csv(path + "data/own_data/DFT_shift_results.csv.gz", compression='gzip')
 
 
 def check_sample(dataset):
@@ -288,8 +288,7 @@ def evaluate_molecule(model, smiles):
     print(output_df)
     return output_df
 
-def plot_results(path):
-    results = pd.read_csv(path + "data/own_data/data_results.csv.gz", index_col=0)
+def plot_results_scatter(results):
     fig = px.scatter(results, x=results.index, y='mae')
     '''fig.add_trace(go.Scatter(x=results.index, y=results['mae'], mode='markers', name='mae'))
     fig.add_trace(go.Scatter(x=results.index, y=results['reverse_mae'], mode='markers', name='reverse_mae'))'''
@@ -297,9 +296,13 @@ def plot_results(path):
     plot = DynamicPlot(fig)
     plot.show()
 
-def plot_shift_errors(path):
-    results = pd.read_csv(path + "data/own_data/shift_results.csv.gz", index_col=0)
-    fig = px.histogram(results, x='target_shift', y='mae', nbins=50, histfunc='avg')
+def plot_results_hist(results):
+    fig = px.histogram(results, x='mae', nbins=100)
+    plot = DynamicPlot(fig)
+    plot.show()
+
+def plot_shift_errors(shift_results):
+    fig = px.histogram(shift_results, x='target_shift', y='mae', nbins=50, histfunc='avg')
     plot = DynamicPlot(fig)
     plot.show()
 
@@ -314,7 +317,7 @@ def plot_shifts(path):
     plot.show()
 
 def print_stats(path):
-    results = pd.read_csv(path + "data/own_data/shift_results.csv.gz", index_col=0)
+    results = pd.read_csv(path + "data/own_data/DFT_results.csv.gz", index_col=0)
     results["reverse_better"] =  np.where(results['reverse_mae'] < results["mae"], "yes", "no")
     print("Average MAE:\n" + str(results.loc[:, "mae"].mean()))
     print("Number of samples where reverse is better: " + str(results["reverse_better"].value_counts()[1]))
@@ -347,8 +350,8 @@ def visualize_shifts(path, results):
     
 def visualize_errors(path, results):
     for smiles in results["molecule"].unique():
-        mol = Chem.MolFromSmiles(smiles)
-        mol = Chem.AddHs(mol)
+        mol = Chem.MolFromSmiles(smiles, sanitize=False)
+        #mol = Chem.AddHs(mol)
         AllChem.Compute2DCoords(mol)
         d = Draw.rdMolDraw2D.MolDraw2DCairo(500, 500)
         atom_data = results.loc[results["molecule"] == smiles]
@@ -386,6 +389,11 @@ def visualize_errors(path, results):
         fig = plt.figure(figsize=(10,8))
         gs = gridspec.GridSpec(2, 1, height_ratios=[8, 1])
         ax0 = plt.subplot(gs[0])
+        ax0.set_title(smiles)
+        print(smiles)
+        shifts = results.loc[results["molecule"] == smiles]
+        print(shifts.drop("molecule", axis=1))
+        print("Mean MAE: " + str(round(shifts["mae"].mean(), 2)))
         ax0.imshow(mol_image)
         plt.axis('off')
         ax1 = plt.subplot(gs[1])
@@ -413,18 +421,27 @@ if __name__ == "__main__":
 
     graph_schema = tfgnn.read_schema(path + "code/predicting_model/GraphSchema.pbtxt")
     graph_spec = tfgnn.create_graph_spec_from_schema_pb(graph_schema)
-    model = tf.saved_model.load(path + "code/predicting_model/Shift/DFTNN/gnn/models/DFT_model")
+    model = tf.saved_model.load(path + "code/predicting_model/Shift/DFTNN/gnn/models/DFT_model_new")
     signature_fn = model.signatures[
         tf.saved_model.DEFAULT_SERVING_SIGNATURE_DEF_KEY]
     
-    dataset_provider = runner.TFRecordDatasetProvider(filenames=[path + "data/own_data/shift/DFT_train.tfrecords"])
+    dataset_provider = runner.TFRecordDatasetProvider(filenames=[path + "data/own_data/shift/all_DFT_data.tfrecords"])
     dataset = dataset_provider.get_dataset(tf.distribute.InputContext())
 
-    
-    #visualize_shifts(path, evaluate_molecule(model, "C#CCC1CCOCO1"))
-    visualize_errors(path, pd.read_csv(path + "data/own_data/shift_results.csv.gz", index_col=0))
+    #plot_results_hist(pd.read_csv(path + "data/own_data/DFT_results.csv.gz", index_col=0))
+    #plot_shift_errors(pd.read_csv(path + "data/own_data/DFT_shift_results.csv.gz", index_col=0))
 
     #evaluate_model_shifts(dataset, model, path)
     #evaluate_model(dataset, model)
-    #evaluate_sample(dataset, model, 7)
+    #evaluate_sample(dataset, model, 2)
     #plot_shift_errors(path)
+
+    #visualize_shifts(path, evaluate_molecule(model, "C#CCC1CCOCO1"))
+    visualize_errors(path, pd.read_csv(path + "data/own_data/DFT_shift_results.csv.gz", index_col=0))
+
+
+    '''
+    
+
+
+    '''
