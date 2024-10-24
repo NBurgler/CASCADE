@@ -440,7 +440,7 @@ def create_tensors(path, name, type="shift"):
         all_data.write(example.SerializeToString())
         if idx < n_train:
             train_data.write(example.SerializeToString())
-        elif idx < n_train+n_valid:
+        elif idx < (n_train+n_valid):
             valid_data.write(example.SerializeToString())
         else:
             test_data.write(example.SerializeToString())
@@ -464,7 +464,7 @@ def process_samples(key, path, save=False, file="", name="", smiles="", type="sh
         create_dictionary(key, path, save, file, name)
         create_tensors(path, name, type)
     elif(key == 1):
-        #create_dictionary(key, path, save, name="DFT") 
+        create_dictionary(key, path, save, name="DFT") 
         create_tensors(path, name="DFT", type=type) # DFT data can only create shift tensors
     elif(key == 2):
         mol_df, atom_df, bond_df = create_dictionary(key, path, smiles=smiles, name=smiles)
@@ -473,7 +473,7 @@ def process_samples(key, path, save=False, file="", name="", smiles="", type="sh
 
 if __name__ == "__main__":
     #path = "/home1/s3665828/code/CASCADE/"
-    #path = "/home/s3665828/Documents/Masters_Thesis/repo/CASCADE/"
-    path = "C:/Users/niels/Documents/repo/CASCADE/"
+    path = "/home/s3665828/Documents/Masters_Thesis/repo/CASCADE/"
+    #path = "C:/Users/niels/Documents/repo/CASCADE/"
 
     process_samples(1, path, file="data/own_data/own_data_with_id.txt", save=True, name="own_data", type="shift")
