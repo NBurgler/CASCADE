@@ -14,6 +14,7 @@ from lenspy import DynamicPlot
 import matplotlib.pyplot as plt
 from matplotlib.colors import LinearSegmentedColormap
 from matplotlib import gridspec
+import gzip
 
 import sys
 import os
@@ -156,6 +157,14 @@ def check_distance_matrix():
     H_indices = atom_data.index[atom_data["atom_symbol"] == "H"].tolist()
     print(atom_data["Shift"][H_indices])
 
+def find_DFT_mol(path, mol_id):
+    with gzip.open(path + "data/DFT8K/DFT.sdf.gz", 'rb') as dft:
+        mol_suppl = Chem.ForwardSDMolSupplier(dft, sanitize=False, removeHs=False)
+        for mol in mol_suppl:
+            if int(mol.GetProp("_Name")) == mol_id:
+                return mol
+        
+
 def evaluate_model(dataset, model):
     num_samples = 100
     output = {"mol_id":[], "molecule":[], "mae":[], "reverse_mae":[]}
@@ -185,11 +194,11 @@ def evaluate_model(dataset, model):
 
 def evaluate_model_shifts(dataset, model, path):
     num_samples = 7454
-    output = {"molecule":[], "index":[], "target_shift":[], "predicted_shift":[], "mae":[]}
+    output = {"molecule":[], "mol_id":[], "index":[], "target_shift":[], "predicted_shift":[], "mae":[]}
     signature_fn = model.signatures[
         tf.saved_model.DEFAULT_SERVING_SIGNATURE_DEF_KEY]
 
-    for i in tqdm(range(5218, 5318)):
+    for i in tqdm(range(0, 100)):
         examples = next(iter(dataset.batch(num_samples)))
         example = tf.reshape(examples[i], (1,))
         input_graph = tfgnn.parse_example(graph_spec, example)
@@ -199,23 +208,20 @@ def evaluate_model_shifts(dataset, model, path):
         labels = tf.transpose(input_graph.node_sets["_readout"].__getitem__("shift").to_tensor())
         smiles = input_graph.context.__getitem__("smiles")
         smiles = tf.get_static_value(smiles).astype(str)[0][0]
-        index = input_graph.node_sets["atom"].__getitem__("_atom_idx")
-
-        mol = Chem.MolFromSmiles(smiles, sanitize=False)
-        #mol = Chem.AddHs(mol)
-        for atom in mol.GetAtoms():
-            if atom.GetSymbol() == "H":
-                output["index"].append(atom.GetIdx())
+        mol_id = input_graph.context.__getitem__("_mol_id")
+        mol_id = tf.get_static_value(mol_id).astype(str)[0][0]
+        index = input_graph.edge_sets["_readout/shift"].adjacency.source[0]
         
         for j, predicted_shift in enumerate(logits):
             target_shift = labels[j]
             output["molecule"].append(smiles)
+            output["mol_id"].append(mol_id)
+            output["index"].append(tf.get_static_value(index[j]))
             output["target_shift"].append(tf.get_static_value(target_shift)[0])
             output["predicted_shift"].append(tf.get_static_value(predicted_shift)[0])
             mae = tf.math.reduce_mean(tf.keras.losses.MeanAbsoluteError().call(y_true=target_shift, y_pred=predicted_shift))
             output["mae"].append(tf.get_static_value(mae)) 
 
-    
     output_df = pd.DataFrame.from_dict(output)
     print(output_df)
     output_df.to_csv(path + "data/own_data/DFT_shift_results.csv.gz", compression='gzip')
@@ -348,10 +354,16 @@ def visualize_shifts(path, results):
     plt.axis('off')
     plt.show()
     
-def visualize_errors(path, results):
+def visualize_errors(path, results, dft=False):
     for smiles in results["molecule"].unique():
-        mol = Chem.MolFromSmiles(smiles, sanitize=False)
-        #mol = Chem.AddHs(mol)
+        sample_results = results.loc[results["molecule"] == smiles]
+
+        if dft:
+            mol = find_DFT_mol(path, sample_results["mol_id"].iloc[0])
+        else:
+            mol = Chem.MolFromSmiles(smiles, sanitize=False)
+            #mol = Chem.AddHs(mol)
+
         AllChem.Compute2DCoords(mol)
         d = Draw.rdMolDraw2D.MolDraw2DCairo(500, 500)
         atom_data = results.loc[results["molecule"] == smiles]
@@ -391,9 +403,9 @@ def visualize_errors(path, results):
         ax0 = plt.subplot(gs[0])
         ax0.set_title(smiles)
         print(smiles)
-        shifts = results.loc[results["molecule"] == smiles]
-        print(shifts.drop("molecule", axis=1))
-        print("Mean MAE: " + str(round(shifts["mae"].mean(), 2)))
+        print(sample_results["mol_id"].iloc[0])
+        print(sample_results.drop(["molecule", "mol_id"], axis=1))
+        print("Mean MAE: " + str(round(sample_results["mae"].mean(), 2)))
         ax0.imshow(mol_image)
         plt.axis('off')
         ax1 = plt.subplot(gs[1])
@@ -421,7 +433,7 @@ if __name__ == "__main__":
 
     graph_schema = tfgnn.read_schema(path + "code/predicting_model/GraphSchema.pbtxt")
     graph_spec = tfgnn.create_graph_spec_from_schema_pb(graph_schema)
-    model = tf.saved_model.load(path + "code/predicting_model/Shift/DFTNN/gnn/models/DFT_model_new")
+    model = tf.saved_model.load(path + "code/predicting_model/Shift/DFTNN/gnn/models/DFT_model")
     signature_fn = model.signatures[
         tf.saved_model.DEFAULT_SERVING_SIGNATURE_DEF_KEY]
     
@@ -437,11 +449,4 @@ if __name__ == "__main__":
     #plot_shift_errors(path)
 
     #visualize_shifts(path, evaluate_molecule(model, "C#CCC1CCOCO1"))
-    visualize_errors(path, pd.read_csv(path + "data/own_data/DFT_shift_results.csv.gz", index_col=0))
-
-
-    '''
-    
-
-
-    '''
+    visualize_errors(path, pd.read_csv(path + "data/own_data/DFT_shift_results.csv.gz", index_col=0), dft=True)
