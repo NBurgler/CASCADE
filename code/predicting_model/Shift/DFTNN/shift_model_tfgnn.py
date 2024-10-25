@@ -122,11 +122,11 @@ def _build_model(graph_tensor_spec):
 
     for _ in range(3):
         graph = tfgnn.keras.layers.GraphUpdate(
-            edge_sets={"bond": tfgnn.keras.layers.EdgeSetUpdate(
+            edge_sets={"interatomic_distance": tfgnn.keras.layers.EdgeSetUpdate(
                 next_state=tfgnn.keras.layers.ResidualNextState(node_updating())
             )},
             node_sets={"atom": tfgnn.keras.layers.NodeSetUpdate(
-                {"bond": tfgnn.keras.layers.Pool(
+                {"interatomic_distance": tfgnn.keras.layers.Pool(
                     reduce_type="mean|sum", 
                     tag=tfgnn.TARGET)},
                 next_state=tfgnn.keras.layers.ResidualNextState(edge_updating())
@@ -223,6 +223,6 @@ if __name__ == "__main__":
     serving_logits = model(serving_model_input)
     serving_output = {"shifts": serving_logits}
     exported_model = tf.keras.Model(serving_input, serving_output)
-    #exported_model.export(code_path + "gnn/models/DFT_model")
+    exported_model.export(code_path + "gnn/models/DFT_model")
    
     #for layer in model.layers: print(layer.get_config(), layer.get_weights())
