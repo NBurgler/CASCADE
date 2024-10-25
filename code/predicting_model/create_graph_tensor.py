@@ -68,9 +68,10 @@ def create_dictionary(key, path, save=False, filepath="", name="", smiles=""):
     elif key == 1:    # DFT data
         with gzip.open(path + "data/DFT8K/DFT.sdf.gz", 'rb') as dft:
             shift_df = pd.read_csv(path + "data/DFT8K/DFT8K.csv.gz", index_col=0)
-            mol_suppl = Chem.ForwardSDMolSupplier(dft, removeHs=False)
+            mol_suppl = Chem.ForwardSDMolSupplier(dft, sanitize=False, removeHs=False)
             for mol in mol_suppl:
                 mol_id = int(mol.GetProp("_Name"))
+                mol.UpdatePropertyCache()
                 mol_entry, atom_entry, bond_entry, distance_entry = fill_dictionary(key, mol_id, mol, shift_data=shift_df)
                 mol_list.extend(mol_entry)
                 atom_list.extend(atom_entry)
@@ -473,7 +474,7 @@ def process_samples(key, path, save=False, file="", name="", smiles="", type="sh
 
 if __name__ == "__main__":
     #path = "/home1/s3665828/code/CASCADE/"
-    path = "/home/s3665828/Documents/Masters_Thesis/repo/CASCADE/"
-    #path = "C:/Users/niels/Documents/repo/CASCADE/"
+    #path = "/home/s3665828/Documents/Masters_Thesis/repo/CASCADE/"
+    path = "C:/Users/niels/Documents/repo/CASCADE/"
 
     process_samples(1, path, file="data/own_data/own_data_with_id.txt", save=True, name="own_data", type="shift")
