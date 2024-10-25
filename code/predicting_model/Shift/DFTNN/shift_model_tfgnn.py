@@ -208,10 +208,10 @@ if __name__ == "__main__":
     model.summary()
 
     code_path = path + "code/predicting_model/Shift/DFTNN/"
-    filepath = code_path + "gnn/models/DFT_model/checkpoint"
+    filepath = code_path + "gnn/models/DFT_model/checkpoint.weights.h5"
     log_dir = code_path + "logs/fit/" + datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
     tensorboard_callback = tf.keras.callbacks.TensorBoard(log_dir=log_dir, histogram_freq=1)
-    checkpoint = tf.keras.callbacks.ModelCheckpoint(filepath, save_best_only=True, period=1, verbose=1)
+    checkpoint = tf.keras.callbacks.ModelCheckpoint(filepath, save_best_only=True, save_freq="epoch", verbose=1, monitor="val_mean_absolute_error", save_weights_only=True)
     history = model.fit(train_ds, steps_per_epoch=steps_per_epoch, validation_steps=validation_steps, epochs=epochs, validation_data=val_ds, callbacks=[tensorboard_callback, checkpoint]) 
 
     #load best weights before saving
