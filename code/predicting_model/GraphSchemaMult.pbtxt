@@ -178,6 +178,32 @@ edge_sets {
 }
 
 edge_sets {
+    key: "interatomic_distance"
+
+    value {
+        description: "The distance between any two atoms."
+        source: "atom"
+        target: "atom"
+
+        features: {
+            key: "distance"
+            value: {
+                description: "The interatomic distance."
+                dtype: DT_FLOAT
+            }
+        }
+
+        features: {
+            key: "rbf_distance"
+            value: {
+                description: "The rbf distance."
+                dtype: DT_FLOAT
+            }
+        }
+    }
+}
+
+edge_sets {
     key: "_readout/shape"
     value {
         description: "Edges marking the hydrogen atoms for shape prediction"

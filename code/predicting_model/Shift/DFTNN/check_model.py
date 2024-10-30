@@ -198,7 +198,7 @@ def evaluate_model_shifts(dataset, model, path):
     signature_fn = model.signatures[
         tf.saved_model.DEFAULT_SERVING_SIGNATURE_DEF_KEY]
 
-    for i in tqdm(range(0, 100)):
+    for i in tqdm(range(5217, 5317)):
         examples = next(iter(dataset.batch(num_samples)))
         example = tf.reshape(examples[i], (1,))
         input_graph = tfgnn.parse_example(graph_spec, example)
@@ -377,7 +377,7 @@ def visualize_errors(path, results, dft=False):
             matching_data = atom_data.loc[atom_data["index"] == index]
             if not matching_data.empty:
                 mae = matching_data["mae"].values[0]
-                rounded_shift = round(matching_data["predicted_shift"].values[0], 2)
+                rounded_shift = round(matching_data["target_shift"].values[0], 2)
                 atom.SetProp('atomNote', str(rounded_shift))
                 highlightAtoms.append(index)
                 if mae <= 1.0:   # interpolate between green and yellow
@@ -425,6 +425,19 @@ def visualize_errors(path, results, dft=False):
     plt.colorbar(label="MAE", orientation="horizontal")
     plt.show()'''
 
+def check_graph(dataset):
+    num_samples = 7454
+    for i in range(5287, 5317):
+        examples = next(iter(dataset.batch(num_samples)))
+        example = tf.reshape(examples[i], (1,))
+        input_graph = tfgnn.parse_example(graph_spec, example)
+        mol_id = input_graph.context.__getitem__("_mol_id")
+        mol_id = tf.get_static_value(mol_id).astype(str)[0][0]
+        if mol_id == str(20045567):
+            print(input_graph.node_sets["atom"].__getitem__("chiral_tag")[0])
+            return input_graph.node_sets["atom"].__getitem__("chiral_tag")[0]
+        
+
 
 if __name__ == "__main__":
     #path = "/home/s3665828/Documents/Masters_Thesis/repo/CASCADE/"
@@ -433,12 +446,21 @@ if __name__ == "__main__":
 
     graph_schema = tfgnn.read_schema(path + "code/predicting_model/GraphSchema.pbtxt")
     graph_spec = tfgnn.create_graph_spec_from_schema_pb(graph_schema)
-    model = tf.saved_model.load(path + "code/predicting_model/Shift/DFTNN/gnn/models/DFT_model")
+    model = tf.saved_model.load(path + "code/predicting_model/Shift/DFTNN/gnn/models/DFT_model_new")
     signature_fn = model.signatures[
         tf.saved_model.DEFAULT_SERVING_SIGNATURE_DEF_KEY]
     
     dataset_provider = runner.TFRecordDatasetProvider(filenames=[path + "data/own_data/shift/all_DFT_data.tfrecords"])
     dataset = dataset_provider.get_dataset(tf.distribute.InputContext())
+
+    a = check_graph(dataset)
+
+    dataset_provider = runner.TFRecordDatasetProvider(filenames=[path + "data/own_data/shift/all_DFT_sanitize_data.tfrecords"])
+    dataset = dataset_provider.get_dataset(tf.distribute.InputContext())
+
+    b = check_graph(dataset)
+
+    print(tf.equal(a, b))
 
     #plot_results_hist(pd.read_csv(path + "data/own_data/DFT_results.csv.gz", index_col=0))
     #plot_shift_errors(pd.read_csv(path + "data/own_data/DFT_shift_results.csv.gz", index_col=0))
@@ -449,4 +471,4 @@ if __name__ == "__main__":
     #plot_shift_errors(path)
 
     #visualize_shifts(path, evaluate_molecule(model, "C#CCC1CCOCO1"))
-    visualize_errors(path, pd.read_csv(path + "data/own_data/DFT_shift_results.csv.gz", index_col=0), dft=True)
+    #visualize_errors(path, pd.read_csv(path + "data/own_data/DFT_shift_results.csv.gz", index_col=0), dft=True)

@@ -69,6 +69,7 @@ def create_dictionary(key, path, save=False, filepath="", name="", smiles=""):
         with gzip.open(path + "data/DFT8K/DFT.sdf.gz", 'rb') as dft:
             shift_df = pd.read_csv(path + "data/DFT8K/DFT8K.csv.gz", index_col=0)
             mol_suppl = Chem.ForwardSDMolSupplier(dft, sanitize=False, removeHs=False)
+            #mol_suppl = Chem.ForwardSDMolSupplier(dft, sanitize=True, removeHs=False)
             for mol in mol_suppl:
                 mol_id = int(mol.GetProp("_Name"))
                 mol.UpdatePropertyCache()
@@ -340,7 +341,7 @@ def create_graph_tensor_shift(mol_data, atom_data, bond_data, distance_data):
     return graph_tensor
 
 
-def create_graph_tensor_shape(mol_data, atom_data, bond_data):
+def create_graph_tensor_shape(mol_data, atom_data, bond_data, distance_data):
     H_indices = atom_data.index[atom_data["atom_symbol"] == "H"].tolist()
     atom_syms = one_hot_encode_atoms(atom_data["atom_symbol"])
     chiral_tags = tf.one_hot(atom_data["chiral_tag"], 9)
@@ -384,6 +385,13 @@ def create_graph_tensor_shape(mol_data, atom_data, bond_data):
                             "is_conjugated": bond_data["is_conjugated"].astype(int),
                             "stereo": stereo,
                             "normalized_distance": bond_data["norm_distance"]}
+            ),
+            "interatomic_distance": tfgnn.EdgeSet.from_fields(
+                sizes = mol_data["n_distance"],
+                adjacency = tfgnn.Adjacency.from_indices(
+                    source = ("atom", distance_data["source"]),
+                    target = ("atom", distance_data["target"])),
+                features = {"distance": distance_data["distance"].astype('float32')}
             ),
             "_readout/shape": tfgnn.EdgeSet.from_fields(
                 sizes = mol_data["n_pro"],
@@ -477,4 +485,4 @@ if __name__ == "__main__":
     #path = "/home/s3665828/Documents/Masters_Thesis/repo/CASCADE/"
     path = "C:/Users/niels/Documents/repo/CASCADE/"
 
-    process_samples(1, path, file="data/own_data/own_data_with_id.txt", save=True, name="own_data", type="shift")
+    process_samples(0, path, file="data/own_data/own_data_with_id.txt", save=True, name="own", type="shape")
