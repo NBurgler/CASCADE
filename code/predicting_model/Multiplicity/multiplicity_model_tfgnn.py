@@ -37,7 +37,7 @@ def rbf_expansion(distances, mu=0, delta=0.1, kmax=256):
 
 def set_initial_node_state(node_set, *, node_set_name):
     # embed the different input features
-    atom_num_embedding = tf.keras.layers.Dense(1, name="atom_num_embedding")(node_set["atom_num"])
+    atom_sym_embedding = tf.keras.layers.Dense(1, name="atom_sym_embedding")(node_set["atom_sym"])
     chiral_tag_embedding = tf.keras.layers.Dense(2, name="chiral_tag_embedding")(node_set["chiral_tag"])
     hybridization_embedding = tf.keras.layers.Dense(2, name="hybridization_embedding")(node_set["hybridization"])
     degree_embedding = tf.keras.layers.Embedding(5, 2, name="degree_embedding")(node_set["degree"])
@@ -48,7 +48,7 @@ def set_initial_node_state(node_set, *, node_set_name):
     valence_embedding = tf.keras.layers.Embedding(5, 2, name="valence_embedding")(node_set["valence"])
 
     # concatenate the embeddings
-    concatenated_embedding = tf.keras.layers.Concatenate()([atom_num_embedding, chiral_tag_embedding,
+    concatenated_embedding = tf.keras.layers.Concatenate()([atom_sym_embedding, chiral_tag_embedding,
                                                             hybridization_embedding, degree_embedding,
                                                             formal_charge_embedding, is_aromatic_embedding,
                                                             no_implicit_embedding, num_Hs_embedding,
@@ -109,9 +109,7 @@ def node_updating():
 def readout_layers():
     return tf.keras.Sequential([
         dense(256, activation="relu"),
-        dense(256, activation="relu"),
-        dense(128, activation="relu"),
-        tf.keras.layers.Dense(1)])
+        dense(256, activation="relu")])
 
 
 def _build_model(graph_tensor_spec):
@@ -136,28 +134,28 @@ def _build_model(graph_tensor_spec):
     readout_features = tfgnn.keras.layers.StructuredReadout("shape")(graph)
     logits = readout_layers()(readout_features)
 
-    return tf.keras.Model(inputs=[input_graph], outputs=[logits])
+    logits = tf.expand_dims(logits, axis=1)
+    logits = tf.concat([logits,logits,logits,logits,logits,logits], axis=1)
+
+    lstm = tf.keras.layers.LSTM(8, activation=tf.keras.activations.softmax, return_sequences=True)(logits)
+
+    return tf.keras.Model(inputs=[input_graph], outputs=[lstm])
 
 
 if __name__ == "__main__":
-    #path = "/home/s3665828/Documents/Masters_Thesis/repo/CASCADE/"
-    path = "C:/Users/niels/Documents/repo/CASCADE/"
-    batch_size = 64
-    initial_learning_rate = 5E-3
-    epochs = 20
+    path = "/home/s3665828/Documents/Masters_Thesis/repo/CASCADE/"
+    #path = "C:/Users/niels/Documents/repo/CASCADE/"
+    batch_size = 32
+    initial_learning_rate = 5E-4
+    epochs = 5
     epoch_divisor = 1
 
-    train_path = path + "data/own_data/own_data_train.tfrecords"
-    val_path = path + "data/own_data/own_data_valid.tfrecords"
+    train_path = path + "data/own_data/shape/own_train.tfrecords"
+    val_path = path + "data/own_data/shape/own_valid.tfrecords"
 
-
-    #train_size = 8
-    #valid_size = 2
-    #test_size = 2
-
-    train_size = 63565
-    valid_size = 13622
-    test_size = 13622
+    train_size = 63324
+    valid_size = 13569
+    test_size = 13571
 
     steps_per_epoch = train_size // batch_size // epoch_divisor
     validation_steps = valid_size // batch_size // epoch_divisor
@@ -192,17 +190,17 @@ if __name__ == "__main__":
     model_input_spec, _ = train_ds.element_spec
     model = _build_model(model_input_spec)
 
-    loss = tf.keras.losses.MeanAbsoluteError()
-    metrics = [tf.keras.losses.MeanAbsoluteError()]
+    loss = tf.keras.losses.CategoricalCrossentropy()
+    metrics = [tf.keras.losses.CategoricalCrossentropy()]
 
     model.compile(tf.keras.optimizers.Adam(), loss=loss, metrics=metrics)
     model.summary()
 
     code_path = path + "code/predicting_model/Multiplicity/"
-    filepath = code_path + "gnn/models/mult_model/checkpoint"
+    filepath = code_path + "gnn/models/mult_model/checkpoint.weights.h5"
     log_dir = code_path + "logs/fit/" + datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
     tensorboard_callback = tf.keras.callbacks.TensorBoard(log_dir=log_dir, histogram_freq=1)
-    checkpoint = tf.keras.callbacks.ModelCheckpoint(filepath, save_best_only=True, period=1, verbose=1)
+    checkpoint = tf.keras.callbacks.ModelCheckpoint(filepath, save_best_only=True, save_freq="epoch", verbose=1, monitor="val_categorical_crossentropy", save_weights_only=True)
     history = model.fit(train_ds, steps_per_epoch=steps_per_epoch, validation_steps=validation_steps, epochs=epochs, validation_data=val_ds, callbacks=[tensorboard_callback, checkpoint]) 
 
     #load best weights before saving
@@ -214,6 +212,6 @@ if __name__ == "__main__":
     serving_logits = model(serving_model_input)
     serving_output = {"shape": serving_logits}
     exported_model = tf.keras.Model(serving_input, serving_output)
-    exported_model.export(code_path + "gnn/models/shift_model")
+    exported_model.export(code_path + "gnn/models/mult_model")
    
     #for layer in model.layers: print(layer.get_config(), layer.get_weights())

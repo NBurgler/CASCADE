@@ -220,11 +220,46 @@ def evaluate_model_shifts(dataset, model, path):
             output["target_shift"].append(tf.get_static_value(target_shift)[0])
             output["predicted_shift"].append(tf.get_static_value(predicted_shift)[0])
             mae = tf.math.reduce_mean(tf.keras.losses.MeanAbsoluteError().call(y_true=target_shift, y_pred=predicted_shift))
-            output["mae"].append(tf.get_static_value(mae)) 
-
+            output["mae"].append(tf.get_static_value(mae))
+            
     output_df = pd.DataFrame.from_dict(output)
     print(output_df)
     output_df.to_csv(path + "data/own_data/DFT_shift_results.csv.gz", compression='gzip')
+
+
+def evaluate_model_shapes(dataset, model, path):
+    num_samples = 63324
+    output = {"molecule":[], "mol_id":[], "index":[], "target_shape":[], "predicted_shape":[], "cce":[]}
+    signature_fn = model.signatures[
+        tf.saved_model.DEFAULT_SERVING_SIGNATURE_DEF_KEY]
+
+    for i in tqdm(range(0, 10)):
+        examples = next(iter(dataset.batch(num_samples)))
+        example = tf.reshape(examples[i], (1,))
+        input_graph = tfgnn.parse_example(graph_spec, example)
+        input_dict = {"examples": example}
+        output_dict = signature_fn(**input_dict)
+        logits = output_dict["shape"]
+        labels = tf.transpose(input_graph.node_sets["_readout"].__getitem__("shape").to_tensor())
+        smiles = input_graph.context.__getitem__("smiles")
+        smiles = tf.get_static_value(smiles).astype(str)[0][0]
+        mol_id = input_graph.context.__getitem__("_mol_id")
+        mol_id = tf.get_static_value(mol_id).astype(str)[0][0]
+        index = input_graph.edge_sets["_readout/shape"].adjacency.source[0]
+        
+        for j, predicted_shape in enumerate(logits):
+            target_shape = labels[j]
+            output["molecule"].append(smiles)
+            output["mol_id"].append(mol_id)
+            output["index"].append(tf.get_static_value(index[j]))
+            output["target_shape"].append(tf.get_static_value(target_shape)[0])
+            output["predicted_shape"].append(tf.get_static_value(predicted_shape)[0])
+            cce = tf.math.reduce_mean(tf.keras.losses.CategoricalCrossentropy().call(y_true=target_shape, y_pred=predicted_shape))
+            output["cce"].append(tf.get_static_value(cce))
+    
+    output_df = pd.DataFrame.from_dict(output)
+    print(output_df)
+    output_df.to_csv(path + "data/own_data/shape_results.csv.gz", compression='gzip')
 
 
 def check_sample(dataset):
@@ -388,7 +423,7 @@ def visualize_errors(path, results, dft=False):
                 else:           # interpolate between yellow and red
                     yellow = colours[1]
                     red = colours[0]
-                    colour = (red[0], max(red[1] + (yellow[1] - (1.0 * (mae/10.0))), 0), red[2])
+                    colour = (red[0], max(red[1] + (yellow[1] - (1.0 * ((mae-1.0)/9.0))), 0), red[2])
                     atom_cols[index] = colour
 
         Draw.rdMolDraw2D.PrepareAndDrawMolecule(d, mol, highlightAtoms=highlightAtoms, highlightAtomColors=atom_cols)
@@ -434,33 +469,37 @@ def check_graph(dataset):
         mol_id = input_graph.context.__getitem__("_mol_id")
         mol_id = tf.get_static_value(mol_id).astype(str)[0][0]
         if mol_id == str(20045567):
+            print(input_graph.context.__getitem__("smiles")[0])
             print(input_graph.node_sets["atom"].__getitem__("chiral_tag")[0])
             return input_graph.node_sets["atom"].__getitem__("chiral_tag")[0]
         
 
 
 if __name__ == "__main__":
-    #path = "/home/s3665828/Documents/Masters_Thesis/repo/CASCADE/"
+    path = "/home/s3665828/Documents/Masters_Thesis/repo/CASCADE/"
     #path = "/home1/s3665828/code/CASCADE/"
-    path = "C:/Users/niels/Documents/repo/CASCADE/"
+    #path = "C:/Users/niels/Documents/repo/CASCADE/"
 
     graph_schema = tfgnn.read_schema(path + "code/predicting_model/GraphSchema.pbtxt")
     graph_spec = tfgnn.create_graph_spec_from_schema_pb(graph_schema)
-    model = tf.saved_model.load(path + "code/predicting_model/Shift/DFTNN/gnn/models/DFT_model_new")
+    #model = tf.saved_model.load(path + "code/predicting_model/Shift/DFTNN/gnn/models/DFT_model_new")
+    model = tf.saved_model.load(path + "code/predicting_model/Multiplicity/gnn/models/mult_model")
     signature_fn = model.signatures[
         tf.saved_model.DEFAULT_SERVING_SIGNATURE_DEF_KEY]
     
-    dataset_provider = runner.TFRecordDatasetProvider(filenames=[path + "data/own_data/shift/all_DFT_data.tfrecords"])
+    dataset_provider = runner.TFRecordDatasetProvider(filenames=[path + "data/own_data/shape/all_own_data_data.tfrecords"])
     dataset = dataset_provider.get_dataset(tf.distribute.InputContext())
 
-    a = check_graph(dataset)
+    evaluate_model_shapes(dataset, model, path)
 
-    dataset_provider = runner.TFRecordDatasetProvider(filenames=[path + "data/own_data/shift/all_DFT_sanitize_data.tfrecords"])
+    #a = check_graph(dataset)
+
+    '''dataset_provider = runner.TFRecordDatasetProvider(filenames=[path + "data/own_data/shift/all_DFT_sanitize_data.tfrecords"])
     dataset = dataset_provider.get_dataset(tf.distribute.InputContext())
 
     b = check_graph(dataset)
 
-    print(tf.equal(a, b))
+    print(tf.equal(a, b))'''
 
     #plot_results_hist(pd.read_csv(path + "data/own_data/DFT_results.csv.gz", index_col=0))
     #plot_shift_errors(pd.read_csv(path + "data/own_data/DFT_shift_results.csv.gz", index_col=0))
