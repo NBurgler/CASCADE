@@ -240,7 +240,7 @@ def evaluate_model_shapes(dataset, model, path):
         input_dict = {"examples": example}
         output_dict = signature_fn(**input_dict)
         logits = output_dict["shape"]
-        labels = tf.transpose(input_graph.node_sets["_readout"].__getitem__("shape").to_tensor())
+        labels = input_graph.node_sets["_readout"].__getitem__("shape").to_tensor()[0]
         smiles = input_graph.context.__getitem__("smiles")
         smiles = tf.get_static_value(smiles).astype(str)[0][0]
         mol_id = input_graph.context.__getitem__("_mol_id")
@@ -480,14 +480,14 @@ if __name__ == "__main__":
     #path = "/home1/s3665828/code/CASCADE/"
     #path = "C:/Users/niels/Documents/repo/CASCADE/"
 
-    graph_schema = tfgnn.read_schema(path + "code/predicting_model/GraphSchema.pbtxt")
+    graph_schema = tfgnn.read_schema(path + "code/predicting_model/GraphSchemaMult.pbtxt")
     graph_spec = tfgnn.create_graph_spec_from_schema_pb(graph_schema)
     #model = tf.saved_model.load(path + "code/predicting_model/Shift/DFTNN/gnn/models/DFT_model_new")
     model = tf.saved_model.load(path + "code/predicting_model/Multiplicity/gnn/models/mult_model")
     signature_fn = model.signatures[
         tf.saved_model.DEFAULT_SERVING_SIGNATURE_DEF_KEY]
     
-    dataset_provider = runner.TFRecordDatasetProvider(filenames=[path + "data/own_data/shape/all_own_data_data.tfrecords"])
+    dataset_provider = runner.TFRecordDatasetProvider(filenames=[path + "data/own_data/shape/all_own_data.tfrecords"])
     dataset = dataset_provider.get_dataset(tf.distribute.InputContext())
 
     evaluate_model_shapes(dataset, model, path)
