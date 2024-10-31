@@ -168,7 +168,7 @@ if __name__ == "__main__":
     train_ds = train_ds.batch(batch_size=batch_size).repeat()
     val_ds = val_ds.batch(batch_size=batch_size)
 
-    graph_schema = tfgnn.read_schema("code/predicting_model/GraphSchemaMult.pbtxt")
+    graph_schema = tfgnn.read_schema(path + "code/predicting_model/GraphSchemaMult.pbtxt")
     example_input_spec = tfgnn.create_graph_spec_from_schema_pb(graph_schema)
     train_ds = train_ds.map(tfgnn.keras.layers.ParseExample(example_input_spec))
     val_ds = val_ds.map(tfgnn.keras.layers.ParseExample(example_input_spec))
