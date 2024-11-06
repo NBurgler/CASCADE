@@ -163,6 +163,20 @@ def find_DFT_mol(path, mol_id):
         for mol in mol_suppl:
             if int(mol.GetProp("_Name")) == mol_id:
                 return mol
+            
+def convert_shape_one_hot(one_hot_matrix):
+    shape = ''
+    for one_hot in one_hot_matrix:
+        if np.argmax(one_hot) == 0: shape += "m"
+        elif np.argmax(one_hot) == 1: shape += "s"
+        elif np.argmax(one_hot) == 2: shape += "d"
+        elif np.argmax(one_hot) == 3: shape += "t"
+        elif np.argmax(one_hot) == 4: shape += "q"
+        elif np.argmax(one_hot) == 5: shape += "p"
+        elif np.argmax(one_hot) == 6: shape += "h"
+        elif np.argmax(one_hot) == 7: shape += "v"
+
+    return shape
         
 
 def evaluate_model(dataset, model):
@@ -247,15 +261,19 @@ def evaluate_model_shapes(dataset, model, path):
         mol_id = tf.get_static_value(mol_id).astype(str)[0][0]
         index = input_graph.edge_sets["_readout/shape"].adjacency.source[0]
         
+
         for j, predicted_shape in enumerate(logits):
+            converted_labels = convert_shape_one_hot(labels[j])
+            print(predicted_shape)
+            converted_predictions = convert_shape_one_hot(predicted_shape)
             target_shape = labels[j]
             output["molecule"].append(smiles)
             output["mol_id"].append(mol_id)
             output["index"].append(tf.get_static_value(index[j]))
-            output["target_shape"].append(tf.get_static_value(target_shape)[0])
-            output["predicted_shape"].append(tf.get_static_value(predicted_shape)[0])
             cce = tf.math.reduce_mean(tf.keras.losses.CategoricalCrossentropy().call(y_true=target_shape, y_pred=predicted_shape))
             output["cce"].append(tf.get_static_value(cce))
+            output["target_shape"].append(tf.get_static_value(converted_labels))
+            output["predicted_shape"].append(tf.get_static_value(converted_predictions))
     
     output_df = pd.DataFrame.from_dict(output)
     print(output_df)
@@ -476,9 +494,9 @@ def check_graph(dataset):
 
 
 if __name__ == "__main__":
-    path = "/home/s3665828/Documents/Masters_Thesis/repo/CASCADE/"
+    #path = "/home/s3665828/Documents/Masters_Thesis/repo/CASCADE/"
     #path = "/home1/s3665828/code/CASCADE/"
-    #path = "C:/Users/niels/Documents/repo/CASCADE/"
+    path = "C:/Users/niels/Documents/repo/CASCADE/"
 
     graph_schema = tfgnn.read_schema(path + "code/predicting_model/GraphSchemaMult.pbtxt")
     graph_spec = tfgnn.create_graph_spec_from_schema_pb(graph_schema)

@@ -134,17 +134,20 @@ def _build_model(graph_tensor_spec):
     readout_features = tfgnn.keras.layers.StructuredReadout("shape")(graph)
     logits = readout_layers()(readout_features)
 
-    logits = tf.expand_dims(logits, axis=1)
-    logits = tf.concat([logits,logits,logits,logits,logits,logits], axis=1)
+    logits = tf.keras.layers.RepeatVector(6)(logits)
+    #logits = tf.expand_dims(logits, axis=1)
+    #logits = tf.concat([logits,logits,logits,logits,logits,logits], axis=1)
 
-    lstm = tf.keras.layers.LSTM(8, activation=tf.keras.activations.softmax, return_sequences=True)(logits)
+    #lstm = tf.keras.layers.LSTM(8, activation=tf.keras.activations.softmax, return_sequences=True)(logits)
+    lstm = tf.keras.layers.LSTM(8, return_sequences=True)(logits)
+    softmax = tf.keras.layers.Softmax()(lstm)
 
-    return tf.keras.Model(inputs=[input_graph], outputs=[lstm])
+    return tf.keras.Model(inputs=[input_graph], outputs=[softmax])
 
 
 if __name__ == "__main__":
-    path = "/home/s3665828/Documents/Masters_Thesis/repo/CASCADE/"
-    #path = "C:/Users/niels/Documents/repo/CASCADE/"
+    #path = "/home/s3665828/Documents/Masters_Thesis/repo/CASCADE/"
+    path = "C:/Users/niels/Documents/repo/CASCADE/"
     batch_size = 32
     initial_learning_rate = 5E-4
     epochs = 5
@@ -181,6 +184,7 @@ if __name__ == "__main__":
     graph = graph.merge_batch_to_components()
     labels = tfgnn.keras.layers.Readout(node_set_name="_readout",
                                     feature_name="shape")(graph)
+    labels = tf.cast(labels, 'int32')
     graph = graph.remove_features(node_sets={"_readout": ["shape"]})
     preproc_model = tf.keras.Model(preproc_input, (graph, labels))
     train_ds = train_ds.map(preproc_model)
