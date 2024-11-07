@@ -120,11 +120,11 @@ def _build_model(graph_tensor_spec):
 
     for _ in range(3):
         graph = tfgnn.keras.layers.GraphUpdate(
-            edge_sets={"interatomic_distance": tfgnn.keras.layers.EdgeSetUpdate(
+            edge_sets={"bond": tfgnn.keras.layers.EdgeSetUpdate(
                 next_state=tfgnn.keras.layers.ResidualNextState(node_updating())
             )},
             node_sets={"atom": tfgnn.keras.layers.NodeSetUpdate(
-                {"interatomic_distance": tfgnn.keras.layers.Pool(
+                {"bond": tfgnn.keras.layers.Pool(
                     reduce_type="mean|sum", 
                     tag=tfgnn.TARGET)},
                 next_state=tfgnn.keras.layers.ResidualNextState(edge_updating())
@@ -139,15 +139,15 @@ def _build_model(graph_tensor_spec):
     #logits = tf.concat([logits,logits,logits,logits,logits,logits], axis=1)
 
     #lstm = tf.keras.layers.LSTM(8, activation=tf.keras.activations.softmax, return_sequences=True)(logits)
-    lstm = tf.keras.layers.LSTM(8, return_sequences=True)(logits)
-    softmax = tf.keras.layers.Softmax()(lstm)
+    gru = tf.keras.layers.GRU(8, return_sequences=True)(logits)
+    softmax = tf.keras.layers.Softmax()(gru)
 
     return tf.keras.Model(inputs=[input_graph], outputs=[softmax])
 
 
 if __name__ == "__main__":
-    #path = "/home/s3665828/Documents/Masters_Thesis/repo/CASCADE/"
-    path = "C:/Users/niels/Documents/repo/CASCADE/"
+    path = "/home/s3665828/Documents/Masters_Thesis/repo/CASCADE/"
+    #path = "C:/Users/niels/Documents/repo/CASCADE/"
     batch_size = 32
     initial_learning_rate = 5E-4
     epochs = 5
