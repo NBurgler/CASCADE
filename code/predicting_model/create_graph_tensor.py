@@ -41,7 +41,7 @@ def findEmbedding(mol):
     return mol, flag
 
 
-def create_dictionary(key, path, save=False, filepath="", name="", smiles=""):
+def create_dictionary(key, path, type, save=False, filepath="", name="", smiles=""):
     mol_list = []
     atom_list = []
     bond_list = []
@@ -118,10 +118,10 @@ def create_dictionary(key, path, save=False, filepath="", name="", smiles=""):
     bond_df["norm_distance"] = (bond_df["distance"] - bond_df["distance"].mean())/bond_df["distance"].std()
 
     if save:
-        mol_df.to_csv(path + "code/predicting_model/Shift/DFTNN/" + name + "_mol.csv.gz", compression='gzip')
-        atom_df.to_csv(path + "code/predicting_model/Shift/DFTNN/" + name + "_atom.csv.gz", compression='gzip')
-        bond_df.to_csv(path + "code/predicting_model/Shift/DFTNN/" + name + "_bond.csv.gz", compression='gzip')
-        distance_df.to_csv(path + "code/predicting_model/Shift/DFTNN/" + name + "_distance.csv.gz", compression='gzip')
+        mol_df.to_csv(path + "code/predicting_model/" + type + "/" + name + "_mol.csv.gz", compression='gzip')
+        atom_df.to_csv(path + "code/predicting_model/" + type + "/" + name + "_atom.csv.gz", compression='gzip')
+        bond_df.to_csv(path + "code/predicting_model/" + type + "/" + name + "_bond.csv.gz", compression='gzip')
+        distance_df.to_csv(path + "code/predicting_model/" + type + "/" + name + "_distance.csv.gz", compression='gzip')
 
     return mol_df, atom_df, bond_df, distance_df
     
@@ -352,7 +352,8 @@ def create_graph_tensor_shape(mol_data, atom_data, bond_data, distance_data):
 
     graph_tensor = tfgnn.GraphTensor.from_pieces(
 
-        context = tfgnn.Context.from_fields(features = {"smiles": mol_data["smiles"]}),
+        context = tfgnn.Context.from_fields(features = {"smiles": mol_data["smiles"],
+                                                        "_mol_id": mol_data["mol_id"]}),
 
         node_sets = {
             "atom": tfgnn.NodeSet.from_fields(
@@ -405,11 +406,11 @@ def create_graph_tensor_shape(mol_data, atom_data, bond_data, distance_data):
 
     return graph_tensor
 
-def create_tensors(path, name, type="shift"):
-    mol_df = pd.read_csv(path + "code/predicting_model/Shift/DFTNN/"+ name + "_mol.csv.gz", index_col=0)
-    atom_df = pd.read_csv(path + "code/predicting_model/Shift/DFTNN/"+ name + "_atom.csv.gz", index_col=0)
-    bond_df = pd.read_csv(path + "code/predicting_model/Shift/DFTNN/"+ name + "_bond.csv.gz", index_col=0)
-    distance_df = pd.read_csv(path + "code/predicting_model/Shift/DFTNN/"+ name + "_distance.csv.gz", index_col=0)
+def create_tensors(path, name, type="Shift"):
+    mol_df = pd.read_csv(path + "code/predicting_model/" + type + "/" + name + "_mol.csv.gz", index_col=0)
+    atom_df = pd.read_csv(path + "code/predicting_model/" + type + "/" + name + "_atom.csv.gz", index_col=0)
+    bond_df = pd.read_csv(path + "code/predicting_model/" + type + "/" + name + "_bond.csv.gz", index_col=0)
+    distance_df = pd.read_csv(path + "code/predicting_model/" + type + "/" + name + "_distance.csv.gz", index_col=0)
 
     train_data = tf.io.TFRecordWriter(path + "data/own_data/" + type + "/" + name + "_train.tfrecords")
     test_data = tf.io.TFRecordWriter(path + "data/own_data/" + type + "/" + name + "_test.tfrecords")
@@ -437,11 +438,11 @@ def create_tensors(path, name, type="shift"):
         mol_data.insert(5, "n_distance", len(distance_data["distance"]))
         # make sure the index resets to 0 instead of continuing from the previous molecule
         atom_data = atom_data.reset_index(drop=True)
-        if type == "shift":
+        if type == "Shift":
             graph_tensor = create_graph_tensor_shift(mol_data, atom_data, bond_data, distance_data)
-        elif type == "shape":
+        elif type == "Shape":
             graph_tensor = create_graph_tensor_shape(mol_data, atom_data, bond_data, distance_data)
-        elif type == "couplings":
+        elif type == "Couplings":
             print("not implemented yet")
             #graph_tensor = create_graph_tensor_couplings(mol_data, atom_data, bond_data)
         example = tfgnn.write_example(graph_tensor)
@@ -454,27 +455,27 @@ def create_tensors(path, name, type="shift"):
         else:
             test_data.write(example.SerializeToString())
 
-def create_single_tensor(mol_data, atom_data, bond_data, type="shift"):
-    if type == "shift":
+def create_single_tensor(mol_data, atom_data, bond_data, type="Shift"):
+    if type == "Shift":
         graph_tensor = create_graph_tensor_shift(mol_data, atom_data, bond_data)
-    elif type == "shape":
+    elif type == "Shape":
         graph_tensor = create_graph_tensor_shape(mol_data, atom_data, bond_data)
-    elif type == "couplings":
+    elif type == "Couplings":
         print("not implemented yet")
 
     example = tfgnn.write_example(graph_tensor)
     return example.SerializeToString()
 
-def process_samples(key, path, save=False, file="", name="", smiles="", type="shift"):
+def process_samples(key, path, type="Shift", save=False, file="", name="", smiles=""):
     # key 0 = process own data (txt)
     # key 1 = process DFT data (sdf + csv)
     # key 2 = process single sample (smiles)
     if (key == 0):
-        create_dictionary(key, path, save, file, name)
+        create_dictionary(key, path, type, save, file, name)
         create_tensors(path, name, type)
     elif(key == 1):
-        create_dictionary(key, path, save, name="DFT") 
-        create_tensors(path, name="DFT", type=type) # DFT data can only create shift tensors
+        create_dictionary(key, path, type="Shift", save=save, name="DFT") 
+        create_tensors(path, name="DFT", type="Shift") # DFT data can only create shift tensors
     elif(key == 2):
         mol_df, atom_df, bond_df = create_dictionary(key, path, smiles=smiles, name=smiles)
         return create_single_tensor(mol_df, atom_df, bond_df)
@@ -485,4 +486,4 @@ if __name__ == "__main__":
     #path = "/home/s3665828/Documents/Masters_Thesis/repo/CASCADE/"
     path = "C:/Users/niels/Documents/repo/CASCADE/"
 
-    process_samples(0, path, file="data/own_data/own_data_with_id.txt", save=True, name="own", type="shape")
+    process_samples(1, path, file="data/own_data/own_data_with_id.txt", save=True, name="own", type="Shape")
