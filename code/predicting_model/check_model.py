@@ -183,8 +183,8 @@ def convert_shape_one_hot(one_hot_matrix):
 def evaluate_model(dataset, model):
     num_samples = 100
     output = {"mol_id":[], "molecule":[], "mae":[], "reverse_mae":[]}
+    examples = next(iter(dataset.batch(num_samples)))
     for i in tqdm(range(num_samples)):
-        examples = next(iter(dataset.batch(num_samples)))
         example = tf.reshape(examples[i], (1,))
         input_graph = tfgnn.parse_example(graph_spec, example)
         input_dict = {"examples": example}
@@ -208,14 +208,14 @@ def evaluate_model(dataset, model):
     #print(output_df)
 
 def evaluate_model_shifts(dataset, model, path):
-    num_samples = 7454
+    num_samples = 90464
     output = {"molecule":[], "mol_id":[], "index":[], "target_shift":[], "predicted_shift":[], "mae":[]}
     signature_fn = model.signatures[
         tf.saved_model.DEFAULT_SERVING_SIGNATURE_DEF_KEY]
-
-    for i in tqdm(range(5217, 5317)):
-        examples = next(iter(dataset.batch(num_samples)))
+    examples = next(iter(dataset.batch(num_samples)))
+    for i in tqdm(range(num_samples)):
         example = tf.reshape(examples[i], (1,))
+        continue
         input_graph = tfgnn.parse_example(graph_spec, example)
         input_dict = {"examples": example}
         output_dict = signature_fn(**input_dict)
@@ -237,9 +237,10 @@ def evaluate_model_shifts(dataset, model, path):
             mae = tf.math.reduce_mean(tf.keras.losses.MeanAbsoluteError().call(y_true=target_shift, y_pred=predicted_shift))
             output["mae"].append(tf.get_static_value(mae))
             
-    output_df = pd.DataFrame.from_dict(output)
-    print(output_df)
-    output_df.to_csv(path + "data/own_data/DFT_shift_results.csv.gz", compression='gzip')
+    print("done")
+    #output_df = pd.DataFrame.from_dict(output)
+    #print(output_df)
+    #output_df.to_csv(path + "data/own_data/DFT_shift_results.csv.gz", compression='gzip')
 
 
 def evaluate_model_shapes(dataset, model, path):
@@ -248,8 +249,8 @@ def evaluate_model_shapes(dataset, model, path):
     signature_fn = model.signatures[
         tf.saved_model.DEFAULT_SERVING_SIGNATURE_DEF_KEY]
 
-    for i in tqdm(range(0, 10)):
-        examples = next(iter(dataset.batch(num_samples)))
+    examples = next(iter(dataset.batch(num_samples)))
+    for i in tqdm(range(0, 1)):
         example = tf.reshape(examples[i], (1,))
         input_graph = tfgnn.parse_example(graph_spec, example)
         input_dict = {"examples": example}
@@ -268,6 +269,7 @@ def evaluate_model_shapes(dataset, model, path):
             print(predicted_shape)
             converted_predictions = convert_shape_one_hot(predicted_shape)
             target_shape = labels[j]
+            print(target_shape)
             output["molecule"].append(smiles)
             output["mol_id"].append(mol_id)
             output["index"].append(tf.get_static_value(index[j]))
@@ -505,9 +507,9 @@ def check_graph(dataset):
 
 
 if __name__ == "__main__":
-    #path = "/home/s3665828/Documents/Masters_Thesis/repo/CASCADE/"
+    path = "/home/s3665828/Documents/Masters_Thesis/repo/CASCADE/"
     #path = "/home1/s3665828/code/CASCADE/"
-    path = "C:/Users/niels/Documents/repo/CASCADE/"
+    #path = "C:/Users/niels/Documents/repo/CASCADE/"
 
     graph_schema = tfgnn.read_schema(path + "code/predicting_model/GraphSchemaMult.pbtxt")
     graph_spec = tfgnn.create_graph_spec_from_schema_pb(graph_schema)
