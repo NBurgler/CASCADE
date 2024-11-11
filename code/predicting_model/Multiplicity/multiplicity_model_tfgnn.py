@@ -135,22 +135,20 @@ def _build_model(graph_tensor_spec):
     logits = readout_layers()(readout_features)
 
     logits = tf.keras.layers.RepeatVector(6)(logits)
-    #logits = tf.expand_dims(logits, axis=1)
-    #logits = tf.concat([logits,logits,logits,logits,logits,logits], axis=1)
 
-    #lstm = tf.keras.layers.LSTM(8, activation=tf.keras.activations.softmax, return_sequences=True)(logits)
     gru = tf.keras.layers.GRU(8, return_sequences=True)(logits)
+   
     softmax = tf.keras.layers.Softmax()(gru)
 
     return tf.keras.Model(inputs=[input_graph], outputs=[softmax])
 
 
 if __name__ == "__main__":
-    path = "/home/s3665828/Documents/Masters_Thesis/repo/CASCADE/"
-    #path = "C:/Users/niels/Documents/repo/CASCADE/"
+    #path = "/home/s3665828/Documents/Masters_Thesis/repo/CASCADE/"
+    path = "C:/Users/niels/Documents/repo/CASCADE/"
     batch_size = 32
     initial_learning_rate = 5E-4
-    epochs = 5
+    epochs = 1
     epoch_divisor = 1
 
     train_path = path + "data/own_data/shape/own_train.tfrecords"
@@ -201,7 +199,7 @@ if __name__ == "__main__":
     model.summary()
 
     code_path = path + "code/predicting_model/Multiplicity/"
-    filepath = code_path + "gnn/models/mult_model/checkpoint.weights.h5"
+    filepath = code_path + "gnn/models/mult_test_model/checkpoint.weights.h5"
     log_dir = code_path + "logs/fit/" + datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
     tensorboard_callback = tf.keras.callbacks.TensorBoard(log_dir=log_dir, histogram_freq=1)
     checkpoint = tf.keras.callbacks.ModelCheckpoint(filepath, save_best_only=True, save_freq="epoch", verbose=1, monitor="val_categorical_crossentropy", save_weights_only=True)
@@ -216,6 +214,6 @@ if __name__ == "__main__":
     serving_logits = model(serving_model_input)
     serving_output = {"shape": serving_logits}
     exported_model = tf.keras.Model(serving_input, serving_output)
-    exported_model.export(code_path + "gnn/models/mult_model")
+    exported_model.export(code_path + "gnn/models/mult_test_model")
    
     #for layer in model.layers: print(layer.get_config(), layer.get_weights())
