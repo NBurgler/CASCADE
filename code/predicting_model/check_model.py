@@ -14,6 +14,7 @@ from lenspy import DynamicPlot
 import matplotlib.pyplot as plt
 from matplotlib.colors import LinearSegmentedColormap
 from matplotlib import gridspec
+from matplotlib.backends.backend_pdf import PdfPages
 import gzip
 
 import sys
@@ -408,65 +409,75 @@ def visualize_shifts(path, results):
     plt.show()
     
 def visualize_errors(path, results, dft=False):
-    for smiles in results["molecule"].unique():
-        sample_results = results.loc[results["molecule"] == smiles]
+    i = 0
+    with PdfPages(path + 'data/own_data/output.pdf') as pdf:
+        for smiles in results["molecule"].unique():
+            if i == 100: break
+            sample_results = results.loc[results["molecule"] == smiles]
 
-        if dft:
-            mol = find_DFT_mol(path, sample_results["mol_id"].iloc[0])
-        else:
-            mol = Chem.MolFromSmiles(smiles, sanitize=False)
-            #mol = Chem.AddHs(mol)
+            if dft:
+                mol = find_DFT_mol(path, sample_results["mol_id"].iloc[0])
+            else:
+                mol = Chem.MolFromSmiles(smiles)
+                mol = Chem.AddHs(mol)
 
-        AllChem.Compute2DCoords(mol)
-        d = Draw.rdMolDraw2D.MolDraw2DCairo(500, 500)
-        atom_data = results.loc[results["molecule"] == smiles]
-        highlightAtoms = []
-                    #  red             yellow           green
-        colours=[(1.0, 0.0, 0.0),(1.0, 1.0, 0.0), (0.0, 1.0, 0.0)]
-        atom_cols = {}
+            AllChem.Compute2DCoords(mol)
+            d = Draw.rdMolDraw2D.MolDraw2DCairo(500, 500)
+            atom_data = results.loc[results["molecule"] == smiles]
+            highlightAtoms = []
+                        #  red             yellow           green
+            colours=[(1.0, 0.0, 0.0),(1.0, 1.0, 0.0), (0.0, 1.0, 0.0)]
+            atom_cols = {}
 
-        for atom in mol.GetAtoms():
-            index = atom.GetIdx()
-            matching_data = atom_data.loc[atom_data["index"] == index]
-            if not matching_data.empty:
-                mae = matching_data["mae"].values[0]
-                rounded_shift = round(matching_data["target_shift"].values[0], 2)
-                atom.SetProp('atomNote', str(rounded_shift))
-                highlightAtoms.append(index)
-                if mae <= 1.0:   # interpolate between green and yellow
-                    yellow = colours[1]
-                    green = colours[2]
-                    colour = (green[0] + (yellow[0] * mae), green[1], green[2])
-                    atom_cols[index] = colour
-                else:           # interpolate between yellow and red
-                    yellow = colours[1]
-                    red = colours[0]
-                    colour = (red[0], max(red[1] + (yellow[1] - (1.0 * ((mae-1.0)/9.0))), 0), red[2])
-                    atom_cols[index] = colour
+            for atom in mol.GetAtoms():
+                index = atom.GetIdx()
+                print(index)
+                matching_data = atom_data.loc[atom_data["index"] == index]
+                if not matching_data.empty:
+                    mae = matching_data["mae"].values[0]
+                    rounded_shift = round(matching_data["predicted_shift"].values[0], 2)
+                    atom.SetProp('atomNote', str(rounded_shift))
+                    highlightAtoms.append(index)
+                    if mae <= 1.0:   # interpolate between green and yellow
+                        yellow = colours[1]
+                        green = colours[2]
+                        colour = (green[0] + (yellow[0] * mae), green[1], green[2])
+                        atom_cols[index] = colour
+                    else:           # interpolate between yellow and red
+                        yellow = colours[1]
+                        red = colours[0]
+                        colour = (red[0], max(red[1] + (yellow[1] - (1.0 * ((mae-1.0)/9.0))), 0), red[2])
+                        atom_cols[index] = colour
 
-        Draw.rdMolDraw2D.PrepareAndDrawMolecule(d, mol, highlightAtoms=highlightAtoms, highlightAtomColors=atom_cols)
-        d.FinishDrawing()
-        d.WriteDrawingText(path + "data/own_data/mol.png")
+            Draw.rdMolDraw2D.PrepareAndDrawMolecule(d, mol, highlightAtoms=highlightAtoms, highlightAtomColors=atom_cols)
+            d.FinishDrawing()
+            d.WriteDrawingText(path + "data/own_data/mol.png")
 
-        mol_image = plt.imread(path + "data/own_data/mol.png")
-        colormap = plt.imread(path + "data/own_data/colormap.png")
+            mol_image = plt.imread(path + "data/own_data/mol.png")
+            colormap = plt.imread(path + "data/own_data/colormap.png")
 
-        fig = plt.figure(figsize=(10,8))
-        gs = gridspec.GridSpec(2, 1, height_ratios=[8, 1])
-        ax0 = plt.subplot(gs[0])
-        ax0.set_title(smiles)
-        print(smiles)
-        print(sample_results["mol_id"].iloc[0])
-        print(sample_results.drop(["molecule", "mol_id"], axis=1))
-        print("Mean MAE: " + str(round(sample_results["mae"].mean(), 2)))
-        ax0.imshow(mol_image)
-        plt.axis('off')
-        ax1 = plt.subplot(gs[1])
-        ax1.imshow(colormap)
-        plt.axis('off')
+            fig = plt.figure(figsize=(10,8))
+            gs = gridspec.GridSpec(2, 1, height_ratios=[8, 1])
+            ax0 = plt.subplot(gs[0])
+            ax0.set_title(smiles)
+            ax0.text(210, 17, "Mol ID: " + str(sample_results["mol_id"].values[0]))
+            ax0.text(210, 7, "Mean MAE: " + str(round(sample_results["mae"].mean(), 2)))
+            print(smiles)
+            print(sample_results["mol_id"].iloc[0])
+            print(sample_results.drop(["molecule", "mol_id"], axis=1))
+            print("Mean MAE: " + str(round(sample_results["mae"].mean(), 2)))
+            ax0.imshow(mol_image)
+            plt.axis('off')
+            ax1 = plt.subplot(gs[1])
+            ax1.imshow(colormap)
+            plt.axis('off')
 
-        plt.tight_layout()
-        plt.show()
+            plt.tight_layout()
+            #plt.show()
+
+            pdf.savefig(fig, bbox_inches='tight')
+
+            i += 1
 
 
     '''x = [0.0, 1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0]
@@ -501,7 +512,7 @@ if __name__ == "__main__":
     graph_schema = tfgnn.read_schema(path + "code/predicting_model/GraphSchemaMult.pbtxt")
     graph_spec = tfgnn.create_graph_spec_from_schema_pb(graph_schema)
     #model = tf.saved_model.load(path + "code/predicting_model/Shift/DFTNN/gnn/models/DFT_model_new")
-    model = tf.saved_model.load(path + "code/predicting_model/Multiplicity/gnn/models/mult_model")
+    model = tf.saved_model.load(path + "code/predicting_model/Multiplicity/gnn/models/mult_dist_model")
     signature_fn = model.signatures[
         tf.saved_model.DEFAULT_SERVING_SIGNATURE_DEF_KEY]
     
@@ -510,17 +521,8 @@ if __name__ == "__main__":
 
     evaluate_model_shapes(dataset, model, path)
 
-    #a = check_graph(dataset)
-
-    '''dataset_provider = runner.TFRecordDatasetProvider(filenames=[path + "data/own_data/shift/all_DFT_sanitize_data.tfrecords"])
-    dataset = dataset_provider.get_dataset(tf.distribute.InputContext())
-
-    b = check_graph(dataset)
-
-    print(tf.equal(a, b))'''
-
-    #plot_results_hist(pd.read_csv(path + "data/own_data/DFT_results.csv.gz", index_col=0))
-    #plot_shift_errors(pd.read_csv(path + "data/own_data/DFT_shift_results.csv.gz", index_col=0))
+    #plot_results_hist(pd.read_csv(path + "data/own_data/own_data_results.csv.gz", index_col=0))
+    #plot_shift_errors(pd.read_csv(path + "data/own_data/own_shift_results.csv.gz", index_col=0))
 
     #evaluate_model_shifts(dataset, model, path)
     #evaluate_model(dataset, model)
@@ -528,4 +530,25 @@ if __name__ == "__main__":
     #plot_shift_errors(path)
 
     #visualize_shifts(path, evaluate_molecule(model, "C#CCC1CCOCO1"))
-    #visualize_errors(path, pd.read_csv(path + "data/own_data/DFT_shift_results.csv.gz", index_col=0), dft=True)
+    #data = pd.read_csv(path + "data/own_data/own_shift_results.csv.gz", index_col=0)
+    #data = data.sort_values(by="mae", ascending=False)
+    #visualize_errors(path, data, dft=False)
+    '''
+    mean_mae_list = {"mol_id":[], "mean_mae":[]}
+    for mol_id in tqdm(data["mol_id"].unique()):
+        atom_data = data.loc[data["mol_id"] == mol_id]
+        mean_mae = str(round(atom_data["mae"].mean(), 2))
+        mean_mae_list["mol_id"].append(mol_id)
+        mean_mae_list["mean_mae"].append(mean_mae)
+
+    mean_mae_df = pd.DataFrame(mean_mae_list)
+
+    print(mean_mae_df)
+    print(data)
+    data = pd.merge(data, mean_mae_df, on="mol_id", how="left")
+
+    print(data)
+    data = data.sort_values(by="mean_mae", ascending=False)
+    print(data)
+    visualize_errors(path, data, dft=False)
+    '''
