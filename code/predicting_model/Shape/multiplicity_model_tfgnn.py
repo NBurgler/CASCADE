@@ -142,13 +142,19 @@ def _build_model(graph_tensor_spec):
 
     return tf.keras.Model(inputs=[input_graph], outputs=[softmax])
 
+def add_sample_weights(input_data, target_data):
+    weights_tensor = tf.constant([1.0,0.8,0.6,0.4,0.2,0.1], dtype=tf.float32)
+    sample_weights = tf.tile(tf.expand_dims(weights_tensor, axis=0), [tf.shape(target_data)[0], 1])
+
+    return input_data, target_data, sample_weights
+
 
 if __name__ == "__main__":
     #path = "/home/s3665828/Documents/Masters_Thesis/repo/CASCADE/"
     path = "C:/Users/niels/Documents/repo/CASCADE/"
     batch_size = 32
     initial_learning_rate = 5E-4
-    epochs = 10
+    epochs = 5
     epoch_divisor = 1
 
     train_path = path + "data/own_data/shape/own_train.tfrecords"
@@ -195,15 +201,18 @@ if __name__ == "__main__":
     loss = tf.keras.losses.CategoricalCrossentropy()
     metrics = [tf.keras.losses.CategoricalCrossentropy()]
 
-    model.compile(tf.keras.optimizers.Adam(), loss=loss, metrics=metrics)
+    model.compile(tf.keras.optimizers.Adam(), loss=loss, metrics=metrics, sample_weight_mode="temporal", weighted_metrics=metrics)
     model.summary()
 
-    code_path = path + "code/predicting_model/Multiplicity/"
-    filepath = code_path + "gnn/models/mult_bond_4_model/checkpoint.weights.h5"
+    train_ds = train_ds.map(lambda x, y: add_sample_weights(x, y))
+    val_ds = val_ds.map(lambda x, y: add_sample_weights(x, y))
+
+    code_path = path + "code/predicting_model/Shape/"
+    filepath = code_path + "gnn/models/mult_weight_model_3/checkpoint.weights.h5"
     log_dir = code_path + "logs/fit/" + datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
     tensorboard_callback = tf.keras.callbacks.TensorBoard(log_dir=log_dir, histogram_freq=1)
-    checkpoint = tf.keras.callbacks.ModelCheckpoint(filepath, save_best_only=True, save_freq="epoch", verbose=1, monitor="val_categorical_crossentropy", save_weights_only=True)
-    history = model.fit(train_ds, steps_per_epoch=steps_per_epoch, validation_steps=validation_steps, epochs=epochs, validation_data=val_ds, callbacks=[tensorboard_callback, checkpoint]) 
+    checkpoint = tf.keras.callbacks.ModelCheckpoint(filepath, save_best_only=True, save_freq="epoch", verbose=1, monitor="val_weighted_categorical_crossentropy", save_weights_only=True)
+    history = model.fit(train_ds, steps_per_epoch=steps_per_epoch, validation_steps=validation_steps, epochs=epochs, validation_data=val_ds, callbacks=[tensorboard_callback, checkpoint])
 
     #load best weights before saving
     model.load_weights(filepath)
@@ -214,6 +223,6 @@ if __name__ == "__main__":
     serving_logits = model(serving_model_input)
     serving_output = {"shape": serving_logits}
     exported_model = tf.keras.Model(serving_input, serving_output)
-    exported_model.export(code_path + "gnn/models/mult_bond_4_model")
+    exported_model.export(code_path + "gnn/models/mult_weight_model_3")
    
     #for layer in model.layers: print(layer.get_config(), layer.get_weights())
