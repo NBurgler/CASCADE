@@ -255,10 +255,10 @@ def one_hot_encode_atoms(atom_symbols):
     return tf.one_hot(tf.convert_to_tensor(indices), 7)
 
 
-def one_hot_encode_shape(shape_symbols):            # The output will be a matrix of six one-hots, where each one-hot encodes for a shape
-    one_hot_shapes = np.empty((0,6,8), dtype=int)   # i.e. 'dtp' will be encoded as matrix of six one-hots where the first one encodes
+def one_hot_encode_shape(shape_symbols):            # The output will be a matrix of four one-hots, where each one-hot encodes for a shape
+    one_hot_shapes = np.empty((0,4,8), dtype=int)   # i.e. 'dtp' will be encoded as matrix of four one-hots where the first one encodes
     for shape in shape_symbols:                     # for 'd', the second for 't', the third for 'p', and the rest for 's'
-        indices = np.ones(6, dtype=int)
+        indices = np.ones(4, dtype=int)
         for i in range(len(shape)):
             if shape[i] == '-': 
                 indices *= -1  # only for non-H atoms
@@ -482,8 +482,8 @@ def process_samples(key, path, type="Shift", save=False, file="", name="", smile
 
 
 if __name__ == "__main__":
-    #path = "/home1/s3665828/code/CASCADE/"
+    path = "/home1/s3665828/code/CASCADE/"
     #path = "/home/s3665828/Documents/Masters_Thesis/repo/CASCADE/"
-    path = "C:/Users/niels/Documents/repo/CASCADE/"
+    #path = "C:/Users/niels/Documents/repo/CASCADE/"
 
     process_samples(1, path, file="data/own_data/own_data_with_id.txt", save=True, name="own", type="Shape")
