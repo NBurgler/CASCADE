@@ -259,18 +259,22 @@ def one_hot_encode_shape(shape_symbols):            # The output will be a matri
     one_hot_shapes = np.empty((0,4,8), dtype=int)   # i.e. 'dtp' will be encoded as matrix of four one-hots where the first one encodes
     for shape in shape_symbols:                     # for 'd', the second for 't', the third for 'p', and the rest for 's'
         indices = np.ones(4, dtype=int)
-        for i in range(len(shape)):
-            if shape[i] == '-': 
-                indices *= -1  # only for non-H atoms
-                break   
-            elif shape[i] == 'm': indices[i] = 0
-            elif shape[i] == 's': indices[i] = 1
-            elif shape[i] == 'd': indices[i] = 2
-            elif shape[i] == 't': indices[i] = 3
-            elif shape[i] == 'q': indices[i] = 4
-            elif shape[i] == 'p': indices[i] = 5
-            elif shape[i] == 'h': indices[i] = 6
-            elif shape[i] == 'v': indices[i] = 7
+        if len(shape) > 4:
+            print(shape)
+            indices = [0, 1, 1, 1]  # msss
+        else:
+            for i in range(len(shape)):
+                if shape[i] == '-': 
+                    indices *= -1  # only for non-H atoms
+                    break   
+                elif shape[i] == 'm': indices[i] = 0
+                elif shape[i] == 's': indices[i] = 1
+                elif shape[i] == 'd': indices[i] = 2
+                elif shape[i] == 't': indices[i] = 3
+                elif shape[i] == 'q': indices[i] = 4
+                elif shape[i] == 'p': indices[i] = 5
+                elif shape[i] == 'h': indices[i] = 6
+                elif shape[i] == 'v': indices[i] = 7
             
         one_hot_shapes = np.append(one_hot_shapes, np.expand_dims(tf.one_hot(tf.convert_to_tensor(indices), 8), axis=0), axis=0)
     return one_hot_shapes
@@ -471,7 +475,7 @@ def process_samples(key, path, type="Shift", save=False, file="", name="", smile
     # key 1 = process DFT data (sdf + csv)
     # key 2 = process single sample (smiles)
     if (key == 0):
-        create_dictionary(key, path, type, save, file, name)
+        #create_dictionary(key, path, type, save, file, name)
         create_tensors(path, name, type)
     elif(key == 1):
         create_dictionary(key, path, type="Shift", save=save, name="DFT") 
@@ -482,8 +486,8 @@ def process_samples(key, path, type="Shift", save=False, file="", name="", smile
 
 
 if __name__ == "__main__":
-    path = "/home1/s3665828/code/CASCADE/"
-    #path = "/home/s3665828/Documents/Masters_Thesis/repo/CASCADE/"
+    #path = "/home1/s3665828/code/CASCADE/"
+    path = "/home/s3665828/Documents/Masters_Thesis/repo/CASCADE/"
     #path = "C:/Users/niels/Documents/repo/CASCADE/"
 
-    process_samples(1, path, file="data/own_data/own_data_with_id.txt", save=True, name="own", type="Shape")
+    process_samples(0, path, file="data/own_data/own_data_with_id.txt", save=True, name="own_4", type="Shape")
