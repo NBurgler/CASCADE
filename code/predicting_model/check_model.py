@@ -178,7 +178,7 @@ def convert_shape_one_hot(one_hot_matrix):
         elif np.argmax(one_hot) == 7: shape += "v"
 
     return shape
-        
+
 
 def evaluate_model(dataset, model):
     num_samples = 100
@@ -200,7 +200,6 @@ def evaluate_model(dataset, model):
         output["molecule"].append(tf.get_static_value(molecule).astype(str))
         output["mae"].append(tf.get_static_value(mae))
         output["reverse_mae"].append(tf.get_static_value(reverse_mae))
-
     
     output_df = pd.DataFrame.from_dict(output)
     print(output_df)
@@ -245,12 +244,14 @@ def evaluate_model_shifts(dataset, model, path):
 
 def evaluate_model_shapes(dataset, model, path):
     num_samples = 63324
-    output = {"molecule":[], "mol_id":[], "index":[], "target_shape":[], "predicted_shape":[], "cce":[]}
+    output = {"molecule":[], "mol_id":[], "index":[], "target_shape":[], "predicted_shape":[], "cce":[], 
+              "pred_1":[], "pred_2":[], "pred_3":[], "pred_4":[], "pred_5":[], "pred_6":[],
+              "target_1":[], "target_2":[], "target_3":[], "target_4":[], "target_5":[], "target_6":[],}
     signature_fn = model.signatures[
         tf.saved_model.DEFAULT_SERVING_SIGNATURE_DEF_KEY]
 
     examples = next(iter(dataset.batch(num_samples)))
-    for i in tqdm(range(0, 1)):
+    for i in tqdm(range(0, 10)):
         example = tf.reshape(examples[i], (1,))
         input_graph = tfgnn.parse_example(graph_spec, example)
         input_dict = {"examples": example}
@@ -266,10 +267,10 @@ def evaluate_model_shapes(dataset, model, path):
 
         for j, predicted_shape in enumerate(logits):
             converted_labels = convert_shape_one_hot(labels[j])
-            print(predicted_shape)
+            #print(predicted_shape)
             converted_predictions = convert_shape_one_hot(predicted_shape)
             target_shape = labels[j]
-            print(target_shape)
+            #print(target_shape)
             output["molecule"].append(smiles)
             output["mol_id"].append(mol_id)
             output["index"].append(tf.get_static_value(index[j]))
@@ -277,9 +278,25 @@ def evaluate_model_shapes(dataset, model, path):
             output["cce"].append(tf.get_static_value(cce))
             output["target_shape"].append(tf.get_static_value(converted_labels))
             output["predicted_shape"].append(tf.get_static_value(converted_predictions))
+
+            output["pred_1"] = converted_predictions[0]
+            output["pred_2"] = converted_predictions[1]
+            output["pred_3"] = converted_predictions[2]
+            output["pred_4"] = converted_predictions[3]
+            output["pred_5"] = converted_predictions[4]
+            output["pred_6"] = converted_predictions[5]
+
+            output["target_1"] = converted_labels[0]
+            output["target_2"] = converted_labels[1]
+            output["target_3"] = converted_labels[2]
+            output["target_4"] = converted_labels[3]
+            output["target_5"] = converted_labels[4]
+            output["target_6"] = converted_labels[5]
+
     
     output_df = pd.DataFrame.from_dict(output)
     print(output_df)
+    print(len(output_df.loc[output_df["pred_1"] == output_df["target_1"]]))
     output_df.to_csv(path + "data/own_data/shape_results.csv.gz", compression='gzip')
 
 
@@ -514,11 +531,11 @@ if __name__ == "__main__":
     graph_schema = tfgnn.read_schema(path + "code/predicting_model/GraphSchemaMult.pbtxt")
     graph_spec = tfgnn.create_graph_spec_from_schema_pb(graph_schema)
     #model = tf.saved_model.load(path + "code/predicting_model/Shift/DFTNN/gnn/models/DFT_model_new")
-    model = tf.saved_model.load(path + "code/predicting_model/Multiplicity/gnn/models/mult_dist_model")
+    model = tf.saved_model.load(path + "code/predicting_model/Shape/gnn/models/mult_bond_model")
     signature_fn = model.signatures[
         tf.saved_model.DEFAULT_SERVING_SIGNATURE_DEF_KEY]
     
-    dataset_provider = runner.TFRecordDatasetProvider(filenames=[path + "data/own_data/shape/all_own_data.tfrecords"])
+    dataset_provider = runner.TFRecordDatasetProvider(filenames=[path + "data/own_data/Shape/all_own_data.tfrecords"])
     dataset = dataset_provider.get_dataset(tf.distribute.InputContext())
 
     evaluate_model_shapes(dataset, model, path)
