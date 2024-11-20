@@ -244,9 +244,12 @@ def evaluate_model_shifts(dataset, model, path):
 
 def evaluate_model_shapes(dataset, model, path):
     num_samples = 63324
+    #output = {"molecule":[], "mol_id":[], "index":[], "target_shape":[], "predicted_shape":[], "cce":[], 
+    #          "pred_1":[], "pred_2":[], "pred_3":[], "pred_4":[], "pred_5":[], "pred_6":[],
+    #          "target_1":[], "target_2":[], "target_3":[], "target_4":[], "target_5":[], "target_6":[],}
     output = {"molecule":[], "mol_id":[], "index":[], "target_shape":[], "predicted_shape":[], "cce":[], 
-              "pred_1":[], "pred_2":[], "pred_3":[], "pred_4":[], "pred_5":[], "pred_6":[],
-              "target_1":[], "target_2":[], "target_3":[], "target_4":[], "target_5":[], "target_6":[],}
+              "weighted_cce":[], "pred_1":[], "pred_2":[], "pred_3":[], "pred_4":[],
+              "target_1":[], "target_2":[], "target_3":[], "target_4":[],}
     signature_fn = model.signatures[
         tf.saved_model.DEFAULT_SERVING_SIGNATURE_DEF_KEY]
 
@@ -274,29 +277,37 @@ def evaluate_model_shapes(dataset, model, path):
             output["molecule"].append(smiles)
             output["mol_id"].append(mol_id)
             output["index"].append(tf.get_static_value(index[j]))
-            cce = tf.math.reduce_mean(tf.keras.losses.CategoricalCrossentropy().call(y_true=target_shape, y_pred=predicted_shape))
-            output["cce"].append(tf.get_static_value(cce))
+            cce = tf.keras.losses.CategoricalCrossentropy()
+            output["cce"].append(tf.get_static_value(tf.math.reduce_mean(cce(y_true=target_shape, y_pred=predicted_shape))))
+            output["weighted_cce"].append(tf.get_static_value(tf.math.reduce_mean(cce(y_true=target_shape, y_pred=predicted_shape, sample_weight=[1.0,0.4,0.15,0.05]))))
             output["target_shape"].append(tf.get_static_value(converted_labels))
             output["predicted_shape"].append(tf.get_static_value(converted_predictions))
 
-            output["pred_1"] = converted_predictions[0]
-            output["pred_2"] = converted_predictions[1]
-            output["pred_3"] = converted_predictions[2]
-            output["pred_4"] = converted_predictions[3]
-            output["pred_5"] = converted_predictions[4]
-            output["pred_6"] = converted_predictions[5]
+            output["pred_1"].append(converted_predictions[0])
+            output["pred_2"].append(converted_predictions[1])
+            output["pred_3"].append(converted_predictions[2])
+            output["pred_4"].append(converted_predictions[3])
+            #output["pred_5"].append(converted_predictions[4])
+            #output["pred_6"].append(converted_predictions[5])
 
-            output["target_1"] = converted_labels[0]
-            output["target_2"] = converted_labels[1]
-            output["target_3"] = converted_labels[2]
-            output["target_4"] = converted_labels[3]
-            output["target_5"] = converted_labels[4]
-            output["target_6"] = converted_labels[5]
+            output["target_1"].append(converted_labels[0])
+            output["target_2"].append(converted_labels[1])
+            output["target_3"].append(converted_labels[2])
+            output["target_4"].append(converted_labels[3])
+            #output["target_5"].append(converted_labels[4])
+            #output["target_6"].append(converted_labels[5])
 
     
     output_df = pd.DataFrame.from_dict(output)
     print(output_df)
-    print(len(output_df.loc[output_df["pred_1"] == output_df["target_1"]]))
+    total = len(output_df)
+    print("Correct prediction: " + str(round((len(output_df.loc[output_df["predicted_shape"] == output_df["target_shape"]])/total)*100, 2)) + "%")
+    print("First token correct: " + str(round((len(output_df.loc[output_df["pred_1"] == output_df["target_1"]])/total)*100, 2)) + "%")
+    print("Second token correct: " + str(round((len(output_df.loc[output_df["pred_2"] == output_df["target_2"]])/total)*100, 2)) + "%")
+    print("Third token correct: " + str(round((len(output_df.loc[output_df["pred_3"] == output_df["target_3"]])/total)*100, 2)) + "%")
+    print("Fourth token correct: " + str(round((len(output_df.loc[output_df["pred_4"] == output_df["target_4"]])/total)*100, 2)) + "%")
+    print("Mean CCE: " + str(round(output_df["cce"].mean(),2)))
+    print("Mean Weighted CCE: " + str(round(output_df["weighted_cce"].mean(),2)))
     output_df.to_csv(path + "data/own_data/shape_results.csv.gz", compression='gzip')
 
 
@@ -524,18 +535,18 @@ def check_graph(dataset):
 
 
 if __name__ == "__main__":
-    path = "/home/s3665828/Documents/Masters_Thesis/repo/CASCADE/"
+    #path = "/home/s3665828/Documents/Masters_Thesis/repo/CASCADE/"
     #path = "/home1/s3665828/code/CASCADE/"
-    #path = "C:/Users/niels/Documents/repo/CASCADE/"
+    path = "C:/Users/niels/Documents/repo/CASCADE/"
 
     graph_schema = tfgnn.read_schema(path + "code/predicting_model/GraphSchemaMult.pbtxt")
     graph_spec = tfgnn.create_graph_spec_from_schema_pb(graph_schema)
     #model = tf.saved_model.load(path + "code/predicting_model/Shift/DFTNN/gnn/models/DFT_model_new")
-    model = tf.saved_model.load(path + "code/predicting_model/Shape/gnn/models/mult_bond_model")
+    model = tf.saved_model.load(path + "code/predicting_model/Shape/gnn/models/mult_weight_model_4")
     signature_fn = model.signatures[
         tf.saved_model.DEFAULT_SERVING_SIGNATURE_DEF_KEY]
     
-    dataset_provider = runner.TFRecordDatasetProvider(filenames=[path + "data/own_data/Shape/all_own_data.tfrecords"])
+    dataset_provider = runner.TFRecordDatasetProvider(filenames=[path + "data/own_data/Shape/own_4_train.tfrecords"])
     dataset = dataset_provider.get_dataset(tf.distribute.InputContext())
 
     evaluate_model_shapes(dataset, model, path)

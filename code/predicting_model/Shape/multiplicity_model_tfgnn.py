@@ -1,9 +1,15 @@
 import os
+os.environ["TF_USE_LEGACY_KERAS"] = "1"
 import numpy as np
 import tensorflow as tf
 import tensorflow_gnn as tfgnn
 import matplotlib.pyplot as plt
 import datetime
+import sys
+parent_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
+sys.path.insert(0, parent_dir)
+import TransformerDecoder as TD
+
 
 def node_preprocessing(node_set, *, node_set_name):
     features = node_set.get_features_dict()
@@ -134,16 +140,20 @@ def _build_model(graph_tensor_spec):
     readout_features = tfgnn.keras.layers.StructuredReadout("shape")(graph)
     logits = readout_layers()(readout_features)
 
-    logits = tf.keras.layers.RepeatVector(6)(logits)
+    #logits = tf.keras.layers.RepeatVector(4)(logits)
+    logits = tf.keras.layers.Dense(512)(logits)
 
-    gru = tf.keras.layers.GRU(8, return_sequences=True)(logits)
+    #gru = tf.keras.layers.GRU(8, return_sequences=True)(logits)
+    decoder = TD.Decoder(num_layers=3, d_model=512, num_heads=8, dff=2048, vocab_size=8)
+    print(logits)
+    output = decoder([0, 0, 0, 0, 0, 0, 0, 0] , logits)
    
-    softmax = tf.keras.layers.Softmax()(gru)
+    softmax = tf.keras.layers.Softmax()(output)
 
     return tf.keras.Model(inputs=[input_graph], outputs=[softmax])
 
 def add_sample_weights(input_data, target_data):
-    weights_tensor = tf.constant([1.0,0.8,0.6,0.4,0.2,0.1], dtype=tf.float32)
+    weights_tensor = tf.constant([1.0,0.4,0.15,0.05], dtype=tf.float32)
     sample_weights = tf.tile(tf.expand_dims(weights_tensor, axis=0), [tf.shape(target_data)[0], 1])
 
     return input_data, target_data, sample_weights
@@ -154,11 +164,11 @@ if __name__ == "__main__":
     path = "C:/Users/niels/Documents/repo/CASCADE/"
     batch_size = 32
     initial_learning_rate = 5E-4
-    epochs = 5
+    epochs = 10
     epoch_divisor = 1
 
-    train_path = path + "data/own_data/shape/own_train.tfrecords"
-    val_path = path + "data/own_data/shape/own_valid.tfrecords"
+    train_path = path + "data/own_data/Shape/own_4_train.tfrecords"
+    val_path = path + "data/own_data/Shape/own_4_valid.tfrecords"
 
     train_size = 63324
     valid_size = 13569
@@ -208,7 +218,7 @@ if __name__ == "__main__":
     val_ds = val_ds.map(lambda x, y: add_sample_weights(x, y))
 
     code_path = path + "code/predicting_model/Shape/"
-    filepath = code_path + "gnn/models/mult_weight_model_3/checkpoint.weights.h5"
+    filepath = code_path + "gnn/models/mult_weight_model_4/checkpoint.weights.h5"
     log_dir = code_path + "logs/fit/" + datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
     tensorboard_callback = tf.keras.callbacks.TensorBoard(log_dir=log_dir, histogram_freq=1)
     checkpoint = tf.keras.callbacks.ModelCheckpoint(filepath, save_best_only=True, save_freq="epoch", verbose=1, monitor="val_weighted_categorical_crossentropy", save_weights_only=True)
@@ -223,6 +233,6 @@ if __name__ == "__main__":
     serving_logits = model(serving_model_input)
     serving_output = {"shape": serving_logits}
     exported_model = tf.keras.Model(serving_input, serving_output)
-    exported_model.export(code_path + "gnn/models/mult_weight_model_3")
+    exported_model.export(code_path + "gnn/models/mult_weight_model_4")
    
     #for layer in model.layers: print(layer.get_config(), layer.get_weights())

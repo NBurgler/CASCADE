@@ -114,7 +114,7 @@ node_sets {
             value: {
             description: "The peak shape of the peak corresponding to the atom as a one-hot."
             dtype: DT_FLOAT
-            shape: { dim { size: 6 } dim { size: 8 }}
+            shape: { dim { size: 4 } dim { size: 8 }}
             }
         }
     }       
