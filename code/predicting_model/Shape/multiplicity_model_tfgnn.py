@@ -8,7 +8,8 @@ import datetime
 import sys
 parent_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
 sys.path.insert(0, parent_dir)
-import TransformerDecoder as TD
+
+import keras_nlp
 
 
 def node_preprocessing(node_set, *, node_set_name):
@@ -141,14 +142,14 @@ def _build_model(graph_tensor_spec):
     logits = readout_layers()(readout_features)
 
     #logits = tf.keras.layers.RepeatVector(4)(logits)
-    logits = tf.keras.layers.Dense(512)(logits)
+    logits = tf.keras.layers.RepeatVector(4)(logits)
 
-    #gru = tf.keras.layers.GRU(8, return_sequences=True)(logits)
-    decoder = TD.Decoder(num_layers=3, d_model=512, num_heads=8, dff=2048, vocab_size=8)
-    print(logits)
-    output = decoder([0, 0, 0, 0, 0, 0, 0, 0] , logits)
+    gru = tf.keras.layers.GRU(64, return_sequences=True)(logits)
+    dense = tf.keras.layers.Dense(8)(gru)
+    #decoder = keras_nlp.layers.TransformerDecoder(intermediate_dim=64, num_heads=8)
+    #output = decoder(logits)
    
-    softmax = tf.keras.layers.Softmax()(output)
+    softmax = tf.keras.layers.Softmax()(dense)
 
     return tf.keras.Model(inputs=[input_graph], outputs=[softmax])
 
@@ -209,19 +210,19 @@ if __name__ == "__main__":
     model = _build_model(model_input_spec)
 
     loss = tf.keras.losses.CategoricalCrossentropy()
-    metrics = [tf.keras.losses.CategoricalCrossentropy()]
+    metrics = [tf.keras.losses.CategoricalCrossentropy(), tf.keras.metrics.Accuracy()]
 
-    model.compile(tf.keras.optimizers.Adam(), loss=loss, metrics=metrics, sample_weight_mode="temporal", weighted_metrics=metrics)
+    model.compile(tf.keras.optimizers.Adam(), loss=loss, metrics=metrics, sample_weight_mode="temporal", weighted_metrics=[])
     model.summary()
 
     train_ds = train_ds.map(lambda x, y: add_sample_weights(x, y))
     val_ds = val_ds.map(lambda x, y: add_sample_weights(x, y))
 
     code_path = path + "code/predicting_model/Shape/"
-    filepath = code_path + "gnn/models/mult_weight_model_4/checkpoint.weights.h5"
+    filepath = code_path + "gnn/models/mult_test_model/checkpoint.weights.h5"
     log_dir = code_path + "logs/fit/" + datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
     tensorboard_callback = tf.keras.callbacks.TensorBoard(log_dir=log_dir, histogram_freq=1)
-    checkpoint = tf.keras.callbacks.ModelCheckpoint(filepath, save_best_only=True, save_freq="epoch", verbose=1, monitor="val_weighted_categorical_crossentropy", save_weights_only=True)
+    checkpoint = tf.keras.callbacks.ModelCheckpoint(filepath, save_best_only=True, save_freq="epoch", verbose=1, monitor="val_loss", save_weights_only=True)
     history = model.fit(train_ds, steps_per_epoch=steps_per_epoch, validation_steps=validation_steps, epochs=epochs, validation_data=val_ds, callbacks=[tensorboard_callback, checkpoint])
 
     #load best weights before saving
@@ -233,6 +234,6 @@ if __name__ == "__main__":
     serving_logits = model(serving_model_input)
     serving_output = {"shape": serving_logits}
     exported_model = tf.keras.Model(serving_input, serving_output)
-    exported_model.export(code_path + "gnn/models/mult_weight_model_4")
+    #exported_model.export(code_path + "gnn/models/mult_test_model")
    
     #for layer in model.layers: print(layer.get_config(), layer.get_weights())
