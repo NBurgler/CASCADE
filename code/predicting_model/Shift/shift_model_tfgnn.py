@@ -204,7 +204,7 @@ if __name__ == "__main__":
     loss = tf.keras.losses.MeanAbsoluteError()
     metrics = [tf.keras.losses.MeanAbsoluteError()]
 
-    model.compile(tf.keras.optimizers.Adam(), loss=loss, metrics=metrics)
+    model.compile(tf.keras.optimizers.Adam(learning_rate), loss=loss, metrics=metrics)
     model.summary()
 
     code_path = path + "code/predicting_model/Shift/DFTNN/"

@@ -1,5 +1,4 @@
 import os
-os.environ["TF_USE_LEGACY_KERAS"] = "1"
 import numpy as np
 import tensorflow as tf
 import tensorflow_gnn as tfgnn
@@ -9,7 +8,7 @@ import sys
 parent_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
 sys.path.insert(0, parent_dir)
 
-import keras_nlp
+import optuna
 
 
 def node_preprocessing(node_set, *, node_set_name):
@@ -119,7 +118,7 @@ def readout_layers():
         dense(256, activation="relu")])
 
 
-def _build_model(graph_tensor_spec):
+def _build_model(trial, graph_tensor_spec):
     input_graph = tf.keras.layers.Input(type_spec=graph_tensor_spec)
     #graph = input_graph.merge_batch_to_components()
 
@@ -141,15 +140,30 @@ def _build_model(graph_tensor_spec):
     readout_features = tfgnn.keras.layers.StructuredReadout("shape")(graph)
     logits = readout_layers()(readout_features)
 
+    if trial.suggest_int("dense_before_gru", 0, 1):
+        logits = tf.keras.layers.Dense(128)(logits)
+
     #logits = tf.keras.layers.RepeatVector(4)(logits)
     logits = tf.keras.layers.RepeatVector(4)(logits)
+    num_gru_layers = trial.suggest_int("num_gru_layers", 0, 3)
+    if num_gru_layers == 1:
+        gru = tf.keras.layers.GRU(trial.suggest_int("gru1_size", 64, 128, step=64), return_sequences=True)(logits)
+    elif num_gru_layers == 2:
+        gru = tf.keras.layers.GRU(trial.suggest_int("gru1_size", 128, 256, step=128), return_sequences=True)(logits)
+        gru = tf.keras.layers.GRU(trial.suggest_int("gru2_size", 64, 128, step=64), return_sequences=True)(logits)
+    elif num_gru_layers == 3:
+        gru = tf.keras.layers.GRU(trial.suggest_int("gru1_size", 128, 256, step=128), return_sequences=True)(logits)
+        gru = tf.keras.layers.GRU(trial.suggest_int("gru2_size", 64, 128, step=64), return_sequences=True)(logits)
+        gru = tf.keras.layers.GRU(trial.suggest_int("gru3_size", 32, 64, step=32), return_sequences=True)(logits)
 
-    gru = tf.keras.layers.GRU(64, return_sequences=True)(logits)
-    dense = tf.keras.layers.Dense(8)(gru)
+    if (trial.suggest_int("gru_or_dense", 0, 1)):
+        final = tf.keras.layers.Dense(8)(gru)
+    else:
+        final = tf.keras.layers.GRU(8, return_sequences=True)(gru)
     #decoder = keras_nlp.layers.TransformerDecoder(intermediate_dim=64, num_heads=8)
     #output = decoder(logits)
    
-    softmax = tf.keras.layers.Softmax()(dense)
+    softmax = tf.keras.layers.Softmax()(final)
 
     return tf.keras.Model(inputs=[input_graph], outputs=[softmax])
 
@@ -159,13 +173,13 @@ def add_sample_weights(input_data, target_data):
 
     return input_data, target_data, sample_weights
 
-
-if __name__ == "__main__":
+def objective(trial):
+    path = "/home1/s3665828/code/CASCADE/"
     #path = "/home/s3665828/Documents/Masters_Thesis/repo/CASCADE/"
-    path = "C:/Users/niels/Documents/repo/CASCADE/"
+    #path = "C:/Users/niels/Documents/repo/CASCADE/"
     batch_size = 32
     initial_learning_rate = 5E-4
-    epochs = 10
+    epochs = 50
     epoch_divisor = 1
 
     train_path = path + "data/own_data/Shape/own_4_train.tfrecords"
@@ -207,19 +221,19 @@ if __name__ == "__main__":
 
     # model
     model_input_spec, _ = train_ds.element_spec
-    model = _build_model(model_input_spec)
+    model = _build_model(trial, model_input_spec)
 
     loss = tf.keras.losses.CategoricalCrossentropy()
-    metrics = [tf.keras.losses.CategoricalCrossentropy(), tf.keras.metrics.Accuracy()]
+    metrics = [tf.keras.losses.CategoricalCrossentropy()]
 
-    model.compile(tf.keras.optimizers.Adam(), loss=loss, metrics=metrics, sample_weight_mode="temporal", weighted_metrics=[])
+    model.compile(tf.keras.optimizers.Adam(learning_rate), loss=loss, metrics=metrics, sample_weight_mode="temporal", weighted_metrics=[])
     model.summary()
 
     train_ds = train_ds.map(lambda x, y: add_sample_weights(x, y))
     val_ds = val_ds.map(lambda x, y: add_sample_weights(x, y))
 
     code_path = path + "code/predicting_model/Shape/"
-    filepath = code_path + "gnn/models/mult_test_model/checkpoint.weights.h5"
+    filepath = code_path + "gnn/models/mult_dist_model_" + str(trial.number) + "/checkpoint.weights.h5"
     log_dir = code_path + "logs/fit/" + datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
     tensorboard_callback = tf.keras.callbacks.TensorBoard(log_dir=log_dir, histogram_freq=1)
     checkpoint = tf.keras.callbacks.ModelCheckpoint(filepath, save_best_only=True, save_freq="epoch", verbose=1, monitor="val_loss", save_weights_only=True)
@@ -234,6 +248,22 @@ if __name__ == "__main__":
     serving_logits = model(serving_model_input)
     serving_output = {"shape": serving_logits}
     exported_model = tf.keras.Model(serving_input, serving_output)
-    #exported_model.export(code_path + "gnn/models/mult_test_model")
-   
-    #for layer in model.layers: print(layer.get_config(), layer.get_weights())
+    exported_model.export(code_path + "gnn/models/mult_dist_model_" + str(trial.number))
+    
+    return history.history['val_loss']
+
+
+if __name__ == "__main__":
+    study = optuna.create_study(direction="minimize")
+    study.optimize(objective, n_trials=60)
+
+    print("Number of finished trials: ", len(study.trials))
+
+    print("Best trial:")
+    trial = study.best_trial
+
+    print("  Value: ", trial.value)
+
+    print("  Params: ")
+    for key, value in trial.params.items():
+        print("    {}: {}".format(key, value))
