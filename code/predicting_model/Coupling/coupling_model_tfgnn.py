@@ -180,8 +180,8 @@ def objective(trial):
     epochs = 2
     epoch_divisor = 1
 
-    train_path = path + "data/own_data/Coupling/own_train.tfrecords"
-    val_path = path + "data/own_data/Coupling/own_valid.tfrecords"
+    train_path = path + "data/own_data/Coupling/own_train.tfrecords.gzip"
+    val_path = path + "data/own_data/Coupling/own_valid.tfrecords.gzip"
 
     train_size = 63324
     valid_size = 13569
@@ -193,8 +193,8 @@ def objective(trial):
         initial_learning_rate, decay_steps=100000, decay_rate=0.96, staircase=True
     )
 
-    train_ds = tf.data.TFRecordDataset([train_path])
-    val_ds = tf.data.TFRecordDataset([val_path])
+    train_ds = tf.data.TFRecordDataset([train_path], compression_type="GZIP")
+    val_ds = tf.data.TFRecordDataset([val_path], compression_type="GZIP")
     train_ds = train_ds.batch(batch_size=batch_size).repeat()
     val_ds = val_ds.batch(batch_size=batch_size)
 

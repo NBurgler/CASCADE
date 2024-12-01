@@ -499,10 +499,11 @@ def create_tensors(path, name, type="Shift"):
     bond_df = pd.read_csv(path + "code/predicting_model/" + type + "/" + name + "_bond.csv.gz", index_col=0)
     distance_df = pd.read_csv(path + "code/predicting_model/" + type + "/" + name + "_distance.csv.gz", index_col=0)
 
-    train_data = tf.io.TFRecordWriter(path + "data/own_data/" + type + "/" + name + "_train.tfrecords")
-    test_data = tf.io.TFRecordWriter(path + "data/own_data/" + type + "/" + name + "_test.tfrecords")
-    valid_data = tf.io.TFRecordWriter(path + "data/own_data/" + type + "/" + name + "_valid.tfrecords")
-    all_data = tf.io.TFRecordWriter(path + "data/own_data/" + type + "/all_" + name + "_data.tfrecords")
+    options = tf.io.TFRecordOptions(compression_type="GZIP")
+    train_data = tf.io.TFRecordWriter(path + "data/own_data/" + type + "/" + name + "_train.tfrecords.gzip", options=options)
+    test_data = tf.io.TFRecordWriter(path + "data/own_data/" + type + "/" + name + "_test.tfrecords.gzip", options=options)
+    valid_data = tf.io.TFRecordWriter(path + "data/own_data/" + type + "/" + name + "_valid.tfrecords.gzip", options=options)
+    all_data = tf.io.TFRecordWriter(path + "data/own_data/" + type + "/all_" + name + "_data.tfrecords.gzip", options=options)
 
     total = len(mol_df)
     n_train = math.floor(total*0.7)
