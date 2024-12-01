@@ -480,7 +480,7 @@ def create_graph_tensor_coupling(mol_data, atom_data, bond_data, distance_data):
                     target = ("atom", distance_data["target"])),
                 features = {"distance": distance_data["distance"].astype('float32')}
             ),
-            "_readout/shape": tfgnn.EdgeSet.from_fields(
+            "_readout/coupling": tfgnn.EdgeSet.from_fields(
                 sizes = mol_data["n_pro"],
                 adjacency = tfgnn.Adjacency.from_indices(
                     source = ("atom", H_indices),
@@ -514,6 +514,7 @@ def create_tensors(path, name, type="Shift"):
     print("Testing set size: " + str(n_test))
 
     for idx, mol_id in tqdm(enumerate(mol_df["mol_id"])):
+        if idx == 10: break
         mol_data = mol_df.loc[mol_df["mol_id"] == mol_id]
         atom_data = atom_df.loc[atom_df["mol_id"] == mol_id]
         bond_data = bond_df.loc[bond_df["mol_id"] == mol_id]
