@@ -147,19 +147,19 @@ def _build_model(trial, graph_tensor_spec):
     logits = tf.keras.layers.RepeatVector(4)(logits)
     num_gru_layers = trial.suggest_int("num_gru_layers", 0, 3)
     if num_gru_layers == 1:
-        gru = tf.keras.layers.GRU(trial.suggest_int("gru1_size", 64, 128, step=64), return_sequences=True)(logits)
+        logits = tf.keras.layers.GRU(trial.suggest_int("gru1_size", 64, 128, step=64), return_sequences=True)(logits)
     elif num_gru_layers == 2:
-        gru = tf.keras.layers.GRU(trial.suggest_int("gru1_size", 128, 256, step=128), return_sequences=True)(logits)
-        gru = tf.keras.layers.GRU(trial.suggest_int("gru2_size", 64, 128, step=64), return_sequences=True)(logits)
+        logits = tf.keras.layers.GRU(trial.suggest_int("gru1_size", 128, 256, step=128), return_sequences=True)(logits)
+        logits = tf.keras.layers.GRU(trial.suggest_int("gru2_size", 64, 128, step=64), return_sequences=True)(logits)
     elif num_gru_layers == 3:
-        gru = tf.keras.layers.GRU(trial.suggest_int("gru1_size", 128, 256, step=128), return_sequences=True)(logits)
-        gru = tf.keras.layers.GRU(trial.suggest_int("gru2_size", 64, 128, step=64), return_sequences=True)(logits)
-        gru = tf.keras.layers.GRU(trial.suggest_int("gru3_size", 32, 64, step=32), return_sequences=True)(logits)
+        logits = tf.keras.layers.GRU(trial.suggest_int("gru1_size", 128, 256, step=128), return_sequences=True)(logits)
+        logits = tf.keras.layers.GRU(trial.suggest_int("gru2_size", 64, 128, step=64), return_sequences=True)(logits)
+        logits = tf.keras.layers.GRU(trial.suggest_int("gru3_size", 32, 64, step=32), return_sequences=True)(logits)
 
     if (trial.suggest_int("gru_or_dense", 0, 1)):
-        final = tf.keras.layers.Dense(8)(gru)
+        final = tf.keras.layers.Dense(8)(logits)
     else:
-        final = tf.keras.layers.GRU(8, return_sequences=True)(gru)
+        final = tf.keras.layers.GRU(8, return_sequences=True)(logits)
     #decoder = keras_nlp.layers.TransformerDecoder(intermediate_dim=64, num_heads=8)
     #output = decoder(logits)
    
@@ -174,13 +174,13 @@ def add_sample_weights(input_data, target_data):
     return input_data, target_data, sample_weights
 
 def objective(trial):
-    path = "/home1/s3665828/code/CASCADE/"
+    #path = "/home1/s3665828/code/CASCADE/"
     #path = "/home/s3665828/Documents/Masters_Thesis/repo/CASCADE/"
-    #path = "C:/Users/niels/Documents/repo/CASCADE/"
+    path = "C:/Users/niels/Documents/repo/CASCADE/"
     batch_size = 32
     initial_learning_rate = 5E-4
-    epochs = 50
-    epoch_divisor = 1
+    epochs = 2
+    epoch_divisor = 10
 
     train_path = path + "data/own_data/Shape/own_4_train.tfrecords"
     val_path = path + "data/own_data/Shape/own_4_valid.tfrecords"
@@ -250,12 +250,12 @@ def objective(trial):
     exported_model = tf.keras.Model(serving_input, serving_output)
     exported_model.export(code_path + "gnn/models/mult_dist_model_" + str(trial.number))
     
-    return history.history['val_loss']
+    return min(history.history['val_loss'])
 
 
 if __name__ == "__main__":
     study = optuna.create_study(direction="minimize")
-    study.optimize(objective, n_trials=60)
+    study.optimize(objective, n_trials=2)
 
     print("Number of finished trials: ", len(study.trials))
 
@@ -267,3 +267,11 @@ if __name__ == "__main__":
     print("  Params: ")
     for key, value in trial.params.items():
         print("    {}: {}".format(key, value))
+
+    for trial in study.trials:
+        print()
+        print("  Trial: ", trial.number)
+        for key, value in trial.params.items():
+            print("    {}: {}".format(key, value))
+        
+        print("  Value: ", trial.value)
