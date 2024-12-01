@@ -167,7 +167,7 @@ def fill_dictionary(key, mol_id, mol, shift_data=""):
         for n, atom in enumerate(mol.GetAtoms()):
             atom_dict = {"mol_id":[], "atom_idx":[], "atom_symbol":[], "chiral_tag":[], "degree":[], 
                  "formal_charge":[], "hybridization":[], "is_aromatic":[], 
-                 "no_implicit":[], "num_Hs":[], "valence":[], "Shift":[], "Shape":[]}
+                 "no_implicit":[], "num_Hs":[], "valence":[], "Shift":[], "Shape":[], "Coupling":[]}
 
             atom_dict["mol_id"] = mol_id
             atom_dict["atom_idx"] = atom.GetIdx()
@@ -187,17 +187,21 @@ def fill_dictionary(key, mol_id, mol, shift_data=""):
                     atomSplit = shift_data[4+iter_H].split(",")
                     atom_dict["Shift"] = atomSplit[1]
                     atom_dict["Shape"] = atomSplit[3]
+                    atom_dict["Coupling"] = atomSplit[2]
                     iter_H += 1
                 elif key == 1:  # using DFT data
                     atom_dict["Shift"] = shift_data.loc[(shift_data['mol_id'] == mol_id) & (shift_data['atom_index'] == n)]["Shift"].values[0]
                     atom_dict["Shape"] = "-"
+                    atom_dict["Coupling"] = "-"
                 elif key == 2: # using molecules without labels (for making new predictions)
                     atom_dict["Shift"] = 0.0
                     atom_dict["Shape"] = "-"
+                    atom_dict["Coupling"] = "-"
                 
             else: # not really necessary now, but useful for adding C-NMR in the future
                 atom_dict["Shift"] = 0.0  # 0.0 shift for non-H atoms
                 atom_dict["Shape"] = "-"
+                atom_dict["Coupling"] = "-"
 
             atom_list.append(atom_dict)
 
@@ -260,7 +264,6 @@ def one_hot_encode_shape(shape_symbols):            # The output will be a matri
     for shape in shape_symbols:                     # for 'd', the second for 't', the third for 'p', and the rest for 's'
         indices = np.ones(4, dtype=int)
         if len(shape) > 4:
-            print(shape)
             indices = [0, 1, 1, 1]  # msss
         else:
             for i in range(len(shape)):
@@ -278,6 +281,18 @@ def one_hot_encode_shape(shape_symbols):            # The output will be a matri
             
         one_hot_shapes = np.append(one_hot_shapes, np.expand_dims(tf.one_hot(tf.convert_to_tensor(indices), 8), axis=0), axis=0)
     return one_hot_shapes
+
+def convert_coupling_constants(coupling_strings):    # Convert the couplings string into an array of length 4
+    couplings = np.zeros((0, 4), dtype=float)
+    for coupling_string in coupling_strings:
+        coupling_constants = [0.0, 0.0, 0.0, 0.0]                # Any entries without a value will be 0.0
+        for i, value in enumerate(coupling_string.split(";")):
+            if value != "-" and i < 4:
+                coupling_constants[i] = float(value)
+
+        couplings = np.append(couplings, np.expand_dims(coupling_constants, axis=0), axis=0)
+
+    return couplings
 
 
 def create_graph_tensor_shift(mol_data, atom_data, bond_data, distance_data):
@@ -410,6 +425,74 @@ def create_graph_tensor_shape(mol_data, atom_data, bond_data, distance_data):
 
     return graph_tensor
 
+def create_graph_tensor_coupling(mol_data, atom_data, bond_data, distance_data):
+    H_indices = atom_data.index[atom_data["atom_symbol"] == "H"].tolist()
+    atom_syms = one_hot_encode_atoms(atom_data["atom_symbol"])
+    chiral_tags = tf.one_hot(atom_data["chiral_tag"], 9)
+    hybridizations = tf.one_hot(atom_data["hybridization"], 9)
+    stereo = tf.one_hot(bond_data["stereo"], 8)
+    bond_type = tf.one_hot(bond_data["bond_type"], 22)
+    shape = one_hot_encode_shape(atom_data["Shape"])
+    coupling = convert_coupling_constants(atom_data["Coupling"])
+
+    graph_tensor = tfgnn.GraphTensor.from_pieces(
+
+        context = tfgnn.Context.from_fields(features = {"smiles": mol_data["smiles"],
+                                                        "_mol_id": mol_data["mol_id"]}),
+
+        node_sets = {
+            "atom": tfgnn.NodeSet.from_fields(
+                sizes = mol_data["n_atoms"],
+                features = {"atom_sym": atom_syms,
+                            "chiral_tag": chiral_tags,
+                            "degree": atom_data["degree"],
+                            "formal_charge": atom_data["formal_charge"],
+                            "hybridization": hybridizations,
+                            "is_aromatic": atom_data["is_aromatic"].astype(int),
+                            "no_implicit": atom_data["no_implicit"].astype(int),
+                            "num_Hs": atom_data["num_Hs"],
+                            "valence": atom_data["valence"],
+                            "shift": atom_data["Shift"],
+                            "shape": shape}
+            ),
+            "_readout": tfgnn.NodeSet.from_fields(
+                sizes = mol_data["n_pro"],
+                features = {"coupling": coupling[H_indices]}
+            )
+        },
+
+        edge_sets = {
+            "bond": tfgnn.EdgeSet.from_fields(
+                sizes = mol_data["n_bonds"],
+                adjacency = tfgnn.Adjacency.from_indices(
+                    source = ("atom", bond_data["source"]),
+                    target = ("atom", bond_data["target"])),
+                features = {"bond_type": bond_type,
+                            "distance": bond_data["distance"].astype('float32'),
+                            "is_conjugated": bond_data["is_conjugated"].astype(int),
+                            "stereo": stereo,
+                            "normalized_distance": bond_data["norm_distance"]}
+            ),
+            "interatomic_distance": tfgnn.EdgeSet.from_fields(
+                sizes = mol_data["n_distance"],
+                adjacency = tfgnn.Adjacency.from_indices(
+                    source = ("atom", distance_data["source"]),
+                    target = ("atom", distance_data["target"])),
+                features = {"distance": distance_data["distance"].astype('float32')}
+            ),
+            "_readout/shape": tfgnn.EdgeSet.from_fields(
+                sizes = mol_data["n_pro"],
+                adjacency = tfgnn.Adjacency.from_indices(
+                    source = ("atom", H_indices),
+                    target = ("_readout", list(range(mol_data["n_pro"].values[0])))
+                )
+            )
+        }
+    )
+
+    return graph_tensor
+
+
 def create_tensors(path, name, type="Shift"):
     mol_df = pd.read_csv(path + "code/predicting_model/" + type + "/" + name + "_mol.csv.gz", index_col=0)
     atom_df = pd.read_csv(path + "code/predicting_model/" + type + "/" + name + "_atom.csv.gz", index_col=0)
@@ -446,9 +529,9 @@ def create_tensors(path, name, type="Shift"):
             graph_tensor = create_graph_tensor_shift(mol_data, atom_data, bond_data, distance_data)
         elif type == "Shape":
             graph_tensor = create_graph_tensor_shape(mol_data, atom_data, bond_data, distance_data)
-        elif type == "Couplings":
-            print("not implemented yet")
-            #graph_tensor = create_graph_tensor_couplings(mol_data, atom_data, bond_data)
+        elif type == "Coupling":
+            graph_tensor = create_graph_tensor_coupling(mol_data, atom_data, bond_data, distance_data)
+
         example = tfgnn.write_example(graph_tensor)
         
         all_data.write(example.SerializeToString())
@@ -465,7 +548,7 @@ def create_single_tensor(mol_data, atom_data, bond_data, type="Shift"):
     elif type == "Shape":
         graph_tensor = create_graph_tensor_shape(mol_data, atom_data, bond_data)
     elif type == "Couplings":
-        print("not implemented yet")
+        graph_tensor = create_graph_tensor_coupling(mol_data, atom_data, bond_data)
 
     example = tfgnn.write_example(graph_tensor)
     return example.SerializeToString()
@@ -487,7 +570,7 @@ def process_samples(key, path, type="Shift", save=False, file="", name="", smile
 
 if __name__ == "__main__":
     #path = "/home1/s3665828/code/CASCADE/"
-    path = "/home/s3665828/Documents/Masters_Thesis/repo/CASCADE/"
-    #path = "C:/Users/niels/Documents/repo/CASCADE/"
+    #path = "/home/s3665828/Documents/Masters_Thesis/repo/CASCADE/"
+    path = "C:/Users/niels/Documents/repo/CASCADE/"
 
-    process_samples(0, path, file="data/own_data/own_data_with_id.txt", save=True, name="own_4", type="Shape")
+    process_samples(0, path, file="data/own_data/own_data_with_id.txt", save=True, name="own", type="Coupling")
