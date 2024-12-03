@@ -110,6 +110,15 @@ node_sets {
             shape: { dim { size: 1 } }
             }
         }
+
+        features: {
+            key:"shape"
+            value: {
+            description: "The shape of the peak corresponding to the atom as a one-hot."
+            dtype: DT_FLOAT
+            shape: { dim { size: 4 } dim { size: 8 }}
+            }
+        }
     }
 }
 
@@ -119,11 +128,11 @@ node_sets {
         description: "the readout nodes."
 
         features: {
-            key:"shape"
+            key:"coupling"
             value: {
-            description: "The peak shape of the peak corresponding to the atom as a one-hot."
+            description: "The coupling constants of the peak."
             dtype: DT_FLOAT
-            shape: { dim { size: 4 } dim { size: 8 }}
+            shape: { dim { size: 4 } }
             }
         }
     }       
@@ -144,7 +153,6 @@ edge_sets {
                 shape: { dim { size: 22 } }
             }
         }
-
         features: {
             key: "distance"
             value: {
@@ -202,9 +210,9 @@ edge_sets {
 }
 
 edge_sets {
-    key: "_readout/shape"
+    key: "_readout/coupling"
     value {
-        description: "Edges marking the hydrogen atoms for shape prediction"
+        description: "Edges marking the hydrogen atoms for coupling constant prediction"
         source: "atom"
         target: "_readout"
     }

@@ -43,44 +43,32 @@ def rbf_expansion(distances, mu=0, delta=0.1, kmax=256):
 
 def set_initial_node_state(node_set, *, node_set_name):
     # embed the different input features
-    atom_sym_embedding = tf.keras.layers.Dense(1, name="atom_sym_embedding")(node_set["atom_sym"])
-    chiral_tag_embedding = tf.keras.layers.Dense(2, name="chiral_tag_embedding")(node_set["chiral_tag"])
-    hybridization_embedding = tf.keras.layers.Dense(2, name="hybridization_embedding")(node_set["hybridization"])
-    degree_embedding = tf.keras.layers.Embedding(5, 2, name="degree_embedding")(node_set["degree"])
-    formal_charge_embedding = tf.keras.layers.Embedding(3, 1, name="formal_charge_embedding")(node_set["formal_charge"])
-    is_aromatic_embedding = tf.keras.layers.Embedding(2, 1, name="is_aromatic_embedding")(node_set["is_aromatic"])
-    no_implicit_embedding = tf.keras.layers.Embedding(2, 1, name="no_implicit_embedding")(node_set["no_implicit"])
-    num_Hs_embedding = tf.keras.layers.Embedding(5, 2, name="num_Hs_embedding")(node_set["num_Hs"])
-    valence_embedding = tf.keras.layers.Embedding(5, 2, name="valence_embedding")(node_set["valence"])
+    flattened_shape = tf.keras.layers.Flatten()(node_set["shape"])
+    one_hot_inputs = tf.keras.layers.Concatenate()([node_set["atom_sym"], node_set["chiral_tag"], node_set["hybridization"], flattened_shape])
+
+    
+    integer_inputs = tf.cast(tf.keras.layers.Concatenate()([node_set["degree"], node_set["formal_charge"], node_set["is_aromatic"], 
+                                                   node_set["no_implicit"], node_set["num_Hs"], node_set["valence"]]), tf.float32)
+    
+    float_inputs = node_set["shift"]
 
     # concatenate the embeddings
-    concatenated_embedding = tf.keras.layers.Concatenate()([atom_sym_embedding, chiral_tag_embedding,
-                                                            hybridization_embedding, degree_embedding,
-                                                            formal_charge_embedding, is_aromatic_embedding,
-                                                            no_implicit_embedding, num_Hs_embedding,
-                                                            valence_embedding])
+    concatenated_inputs = tf.keras.layers.Concatenate()([one_hot_inputs, integer_inputs, float_inputs])
     #concatenated_embedding = tf.keras.backend.print_tensor(concatenated_embedding)
-    return tf.keras.layers.Dense(256, name="node_embedding")(concatenated_embedding)
+    return tf.keras.layers.Dense(256, name="node_embedding")(concatenated_inputs)
 
 def set_initial_edge_state(edge_set, *, edge_set_name):
     if edge_set_name == "bond":
-        normalized_distance = tf.keras.layers.Reshape((-1,))(edge_set["distance"])
-        #normalized_distance = tf.keras.backend.print_tensor(normalized_distance, summarize=-1)
-        bond_type_embedding = tf.keras.layers.Dense(2, name="bond_type_embedding")(edge_set["bond_type"])
-        is_conjugated_embedding = tf.keras.layers.Embedding(2, 1, name="is_conjugated_embedding")(edge_set["is_conjugated"])
-        stereo_embedding = tf.keras.layers.Dense(2, name="stereo_embedding")(edge_set["stereo"])
-        #distance = tf.keras.backend.print_tensor(distance, summarize=-1)
-        #rbf_distance = rbf_expansion(edge_set["distance"])
-        #rbf_distance = tf.keras.layers.Reshape((-1,))(rbf_distance)
+        one_hot_inputs = tf.keras.layers.Concatenate()([edge_set["bond_type"], edge_set["stereo"]])
+        integer_inputs = tf.cast(edge_set["is_conjugated"], tf.float32)
+        float_inputs = edge_set["normalized_distance"]
+                                
+        edge_inputs = tf.keras.layers.Concatenate()([one_hot_inputs, integer_inputs, float_inputs])
 
-        #rbf_distance = tf.keras.backend.print_tensor(rbf_distance, summarize=-1)
-        # TODO: add other features
-        #distance = tf.keras.backend.print_tensor(distance, summarize=-1)
-        edge_embedding = tf.keras.layers.Concatenate()([normalized_distance, bond_type_embedding, is_conjugated_embedding, stereo_embedding])
     elif edge_set_name == "interatomic_distance":
         return rbf_expansion(edge_set["distance"])
     #edge_embedding = tf.keras.backend.print_tensor(edge_embedding, summarize=-1)
-    return tf.keras.layers.Dense(256, name="edge_embedding")(edge_embedding)
+    return tf.keras.layers.Dense(256, name="edge_embedding")(edge_inputs)
 
 def dense(units, activation=None):
         """A Dense layer with regularization (L2 and Dropout)."""
@@ -139,11 +127,12 @@ def _build_model(trial, graph_tensor_spec):
     readout_features = tfgnn.keras.layers.StructuredReadout("coupling")(graph)
     logits = readout_layers()(readout_features)
 
-    if trial.suggest_int("dense_before_gru", 0, 1):
-        logits = tf.keras.layers.Dense(128)(logits)
-
+    '''if trial.suggest_int("dense_before_gru", 0, 1):
+        logits = tf.keras.layers.Dense(128)(logits)'''
+    logits = tf.keras.layers.Dense(128)(logits)
     logits = tf.keras.layers.RepeatVector(4)(logits)
-    num_gru_layers = trial.suggest_int("num_gru_layers", 0, 3)
+    #num_gru_layers = trial.suggest_int("num_gru_layers", 0, 3)
+    num_gru_layers = 2
     if num_gru_layers == 1:
         logits = tf.keras.layers.GRU(trial.suggest_int("gru1_size", 64, 128, step=64), return_sequences=True)(logits)
     elif num_gru_layers == 2:
@@ -154,11 +143,11 @@ def _build_model(trial, graph_tensor_spec):
         logits = tf.keras.layers.GRU(trial.suggest_int("gru2_size", 64, 128, step=64), return_sequences=True)(logits)
         logits = tf.keras.layers.GRU(trial.suggest_int("gru3_size", 32, 64, step=32), return_sequences=True)(logits)
 
-    if (trial.suggest_int("gru_or_dense", 0, 1)):
+    '''if (trial.suggest_int("gru_or_dense", 0, 1)):
         final = tf.keras.layers.Dense(1)(logits)
     else:
-        final = tf.keras.layers.GRU(1, return_sequences=True)(logits)
-
+        final = tf.keras.layers.GRU(1, return_sequences=True)(logits)'''
+    final = tf.keras.layers.Dense(1)(logits)
     final = tf.squeeze(final)
 
     return tf.keras.Model(inputs=[input_graph], outputs=[final])
@@ -177,7 +166,7 @@ def objective(trial):
     path = "C:/Users/niels/Documents/repo/CASCADE/"
     batch_size = 32
     initial_learning_rate = 5E-4
-    epochs = 2
+    epochs = 10
     epoch_divisor = 1
 
     train_path = path + "data/own_data/Coupling/own_train.tfrecords.gzip"
@@ -231,7 +220,8 @@ def objective(trial):
     #val_ds = val_ds.map(lambda x, y: add_sample_weights(x, y))
 
     code_path = path + "code/predicting_model/Coupling/"
-    filepath = code_path + "gnn/models/coupling_model_" + str(trial.number) + "/checkpoint.weights.h5"
+    #filepath = code_path + "gnn/models/coupling_model_" + str(trial.number) + "/checkpoint.weights.h5"
+    filepath = code_path + "gnn/models/coupling_model_test/checkpoint.weights.h5"
     log_dir = code_path + "logs/fit/" + datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
     tensorboard_callback = tf.keras.callbacks.TensorBoard(log_dir=log_dir, histogram_freq=1)
     checkpoint = tf.keras.callbacks.ModelCheckpoint(filepath, save_best_only=True, save_freq="epoch", verbose=1, monitor="val_loss", save_weights_only=True)
@@ -246,7 +236,8 @@ def objective(trial):
     serving_logits = model(serving_model_input)
     serving_output = {"coupling_constants": serving_logits}
     exported_model = tf.keras.Model(serving_input, serving_output)
-    exported_model.export(code_path + "gnn/models/coupling_model_" + str(trial.number))
+    #exported_model.export(code_path + "gnn/models/coupling_model_" + str(trial.number))
+    exported_model.export(code_path + "gnn/models/coupling_model_test")
     
     return min(history.history['val_loss'])
 

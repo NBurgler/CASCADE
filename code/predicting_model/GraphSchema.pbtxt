@@ -8,6 +8,7 @@ node_sets {
             value: {
                 description: "The atom index."
                 dtype: DT_INT64
+                shape: { dim { size: 1 } }
             }
         }
     
@@ -34,6 +35,7 @@ node_sets {
             value: {
                 description: "The atom's formal charge, an integer value."
                 dtype: DT_INT64
+                shape: { dim { size: 1 } }
             }
         }
 
@@ -51,6 +53,7 @@ node_sets {
             value: {
                 description: "0 if the atom is not aromatic, 1 if it is."
                 dtype: DT_INT64
+                shape: { dim { size: 1 } }
             }
         }
 
@@ -59,6 +62,7 @@ node_sets {
             value: {
                 description: "0 if the atom is allowed to have implicit atoms, 1 if it isn't"
                 dtype: DT_INT64
+                shape: { dim { size: 1 } }
             }
         }
 
@@ -67,6 +71,7 @@ node_sets {
             value: {
                 description: "The number of radical atoms."
                 dtype: DT_INT64
+                shape: { dim { size: 1 } }
             }
         }
 
@@ -75,6 +80,7 @@ node_sets {
             value: {
                 description: "The degree of the atom including H-atoms."
                 dtype: DT_INT64
+                shape: { dim { size: 1 } }
             }
         }
 
@@ -83,6 +89,7 @@ node_sets {
             value: {
                 description: "The total number of hydrogen atoms on the atom."
                 dtype: DT_INT64
+                shape: { dim { size: 1 } }
             }
         }
 
@@ -91,6 +98,7 @@ node_sets {
             value: {
                 description: "The total (implicit and explicit) valence of the atom."
                 dtype: DT_INT64
+                shape: { dim { size: 1 } }
             }
         }
     }
@@ -104,8 +112,9 @@ node_sets {
         features: {
             key:"shift"
             value: {
-            description: "The chemical shift of the atom."
-            dtype: DT_FLOAT
+                description: "The chemical shift of the atom."
+                dtype: DT_FLOAT
+                shape: { dim { size: 1 } }
             }
         }
     }       
@@ -126,18 +135,13 @@ edge_sets {
                 shape: { dim { size: 22 } }
             }
         }
+
         features: {
             key: "distance"
             value: {
                 description: "The interatomic distance."
                 dtype: DT_FLOAT
-            }
-        }
-        features: {
-            key: "rbf_distance"
-            value: {
-                description: "The rbf distance."
-                dtype: DT_FLOAT
+                shape: { dim { size: 1 } }
             }
         }
 
@@ -146,6 +150,7 @@ edge_sets {
             value: {
                 description: "0 if the bond is not conjugated, 1 if it is."
                 dtype: DT_INT64
+                shape: { dim { size: 1 } }
             }
         }
 
@@ -163,6 +168,7 @@ edge_sets {
             value: {
                 description: "The normalized interatomic distance."
                 dtype: DT_FLOAT
+                shape: { dim { size: 1 } }
             }
         }
     }
@@ -180,14 +186,6 @@ edge_sets {
             key: "distance"
             value: {
                 description: "The interatomic distance."
-                dtype: DT_FLOAT
-            }
-        }
-
-        features: {
-            key: "rbf_distance"
-            value: {
-                description: "The rbf distance."
                 dtype: DT_FLOAT
             }
         }
@@ -209,6 +207,7 @@ context {
         value: {
             description: "The smiles of the molecule."
             dtype: DT_STRING
+            shape: { dim { size: 1 } }
         }
     }
 
@@ -217,6 +216,7 @@ context {
         value: {
             description: "The id of the molecule."
             dtype: DT_INT64
+            shape: { dim { size: 1 } }
         }
     }
 }
