@@ -544,13 +544,19 @@ def create_tensors(path, name, type="Shift"):
         else:
             test_data.write(example.SerializeToString())
 
-def create_single_tensor(mol_data, atom_data, bond_data, type="Shift"):
+def create_single_tensor(mol_data, atom_data, bond_data, distance_data, type="Shift"):
     if type == "Shift":
-        graph_tensor = create_graph_tensor_shift(mol_data, atom_data, bond_data)
+        if "n_distance" not in mol_data.columns:
+            mol_data.insert(5, "n_distance", len(distance_data["distance"]))
+        graph_tensor = create_graph_tensor_shift(mol_data, atom_data, bond_data, distance_data)
     elif type == "Shape":
-        graph_tensor = create_graph_tensor_shape(mol_data, atom_data, bond_data)
-    elif type == "Couplings":
-        graph_tensor = create_graph_tensor_coupling(mol_data, atom_data, bond_data)
+        if "n_distance" not in mol_data.columns:
+            mol_data.insert(5, "n_distance", len(distance_data["distance"]))
+        graph_tensor = create_graph_tensor_shape(mol_data, atom_data, bond_data, distance_data)
+    elif type == "Coupling":
+        if "n_distance" not in mol_data.columns:
+            mol_data.insert(5, "n_distance", len(distance_data["distance"]))
+        graph_tensor = create_graph_tensor_coupling(mol_data, atom_data, bond_data, distance_data)
 
     example = tfgnn.write_example(graph_tensor)
     return example.SerializeToString()
@@ -566,8 +572,8 @@ def process_samples(key, path, type="Shift", save=False, file="", name="", smile
         create_dictionary(key, path, type="Shift", save=save, name="DFT") 
         create_tensors(path, name="DFT", type="Shift") # DFT data can only create shift tensors
     elif(key == 2):
-        mol_df, atom_df, bond_df = create_dictionary(key, path, smiles=smiles, name=smiles)
-        return create_single_tensor(mol_df, atom_df, bond_df)
+        mol_df, atom_df, bond_df, distance_df = create_dictionary(key, path, type=type, smiles=smiles, name=smiles)
+        return create_single_tensor(mol_df, atom_df, bond_df, distance_df, type=type)
 
 
 if __name__ == "__main__":
