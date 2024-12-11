@@ -17,10 +17,11 @@ from matplotlib import gridspec
 from matplotlib.backends.backend_pdf import PdfPages
 import gzip
 
+
 import sys
 import os
 sys.path.append('code')
-from predicting_model.create_graph_tensor import process_samples
+from predicting_model.create_graph_tensor import create_dictionary, create_single_tensor
 
 def check_zero(input_graph):
     i = 0
@@ -31,57 +32,6 @@ def check_zero(input_graph):
         i += 1
 
     #print(input_graph.context.__getitem__("smiles")[28872])
-
-def rbf_expansion(distances, mu=0, delta=0.1, kmax=256):
-    k = np.arange(0, kmax)
-    logits = -(tf.expand_dims(distances, 1) - (-mu + delta * k))**2 / delta
-    return tf.math.exp(logits)
-
-def set_initial_node_state(node_set, *, node_set_name):
-    # one-hot encoded features are embedded immediately
-    atom_num_embedding = tf.keras.layers.Dense(64)(node_set["atom_num"])
-    chiral_tag_embedding = tf.keras.layers.Dense(64)(node_set["chiral_tag"])
-    hybridization_embedding = tf.keras.layers.Dense(64)(node_set["hybridization"])
-
-    # other numerical features are first reshaped...
-    degree = tf.keras.layers.Reshape((-1,))(node_set["degree"])
-    explicit_valence = tf.keras.layers.Reshape((-1,))(node_set["explicit_valence"])
-    formal_charge = tf.keras.layers.Reshape((-1,))(node_set["formal_charge"])
-    implicit_valence = tf.keras.layers.Reshape((-1,))(node_set["implicit_valence"])
-    is_aromatic = tf.keras.layers.Reshape((-1,))(node_set["is_aromatic"])
-    no_implicit = tf.keras.layers.Reshape((-1,))(node_set["no_implicit"])
-    num_explicit_Hs = tf.keras.layers.Reshape((-1,))(node_set["num_explicit_Hs"])
-    num_implicit_Hs = tf.keras.layers.Reshape((-1,))(node_set["num_implicit_Hs"])
-    num_radical_electrons = tf.keras.layers.Reshape((-1,))(node_set["num_radical_electrons"])
-    total_degree = tf.keras.layers.Reshape((-1,))(node_set["total_degree"])
-    total_num_Hs = tf.keras.layers.Reshape((-1,))(node_set["total_num_Hs"])
-    total_valence = tf.keras.layers.Reshape((-1,))(node_set["total_valence"])
-
-    print(node_set["degree"])
-    print(degree)
-
-    # ... and then concatenated so that they can be embedded as well
-    numerical_features = tf.keras.layers.Concatenate(axis=1)([degree, explicit_valence, formal_charge, implicit_valence, is_aromatic, no_implicit,
-                                                              num_explicit_Hs, num_implicit_Hs, num_radical_electrons, total_degree, total_num_Hs, 
-                                                              total_valence])
-    print(numerical_features)
-    #numerical_features = tf.squeeze(numerical_features, 1)
-    #print(numerical_features)
-    numerical_embedding = tf.keras.layers.Dense(64)(numerical_features)
-    
-    # the one-hot and numerical embeddings are concatenated and fed to another dense layer
-    concatenated_embedding = tf.keras.layers.Concatenate()([atom_num_embedding, chiral_tag_embedding,
-                                                            hybridization_embedding, numerical_embedding])
-    return tf.keras.layers.Dense(256, name="node_init")(concatenated_embedding)
-
-def set_initial_edge_state(edge_set, *, edge_set_name):
-    features = edge_set.get_features_dict()
-
-    if edge_set_name == "bond":
-        distances = features.pop('distance')
-        features['rbf_distance'] = rbf_expansion(distances)
-    # TODO: add other features
-    return tf.keras.layers.Dense(256, name="edge_init")(features['rbf_distance'])
 
 def check_data_nodes(ds, graph_spec):
     dataset = ds.map(tfgnn.keras.layers.ParseSingleExample(graph_spec))
@@ -214,7 +164,6 @@ def evaluate_model_shifts(dataset, model, path):
     examples = next(iter(dataset.batch(num_samples)))
     for i in tqdm(range(num_samples)):
         example = tf.reshape(examples[i], (1,))
-        continue
         input_graph = tfgnn.parse_example(graph_spec, example)
         input_dict = {"examples": example}
         output_dict = signature_fn(**input_dict)
@@ -243,7 +192,7 @@ def evaluate_model_shifts(dataset, model, path):
 
 
 def evaluate_model_shapes(dataset, model, path):
-    num_samples = 63324
+    num_samples = 1000
     #output = {"molecule":[], "mol_id":[], "index":[], "target_shape":[], "predicted_shape":[], "cce":[], 
     #          "pred_1":[], "pred_2":[], "pred_3":[], "pred_4":[], "pred_5":[], "pred_6":[],
     #          "target_1":[], "target_2":[], "target_3":[], "target_4":[], "target_5":[], "target_6":[],}
@@ -254,7 +203,7 @@ def evaluate_model_shapes(dataset, model, path):
         tf.saved_model.DEFAULT_SERVING_SIGNATURE_DEF_KEY]
 
     examples = next(iter(dataset.batch(num_samples)))
-    for i in tqdm(range(0, 10)):
+    for i in tqdm(range(num_samples)):
         example = tf.reshape(examples[i], (1,))
         input_graph = tfgnn.parse_example(graph_spec, example)
         input_dict = {"examples": example}
@@ -308,7 +257,152 @@ def evaluate_model_shapes(dataset, model, path):
     print("Fourth token correct: " + str(round((len(output_df.loc[output_df["pred_4"] == output_df["target_4"]])/total)*100, 2)) + "%")
     print("Mean CCE: " + str(round(output_df["cce"].mean(),2)))
     print("Mean Weighted CCE: " + str(round(output_df["weighted_cce"].mean(),2)))
+    print(output_df["pred_1"].value_counts(normalize=True) * 100)
+    print(output_df["pred_2"].value_counts(normalize=True) * 100)
+    print(output_df["pred_3"].value_counts(normalize=True) * 100)
+    print(output_df["pred_4"].value_counts(normalize=True) * 100)
     output_df.to_csv(path + "data/own_data/shape_results.csv.gz", compression='gzip')
+
+
+def evaluate_model_coupling(dataset, model, path):
+    num_samples = 63324
+    output = {"molecule":[], "mol_id":[], "index":[], "target_coupling":[], "predicted_coupling":[],
+              "mae":[], "pred_1":[], "pred_2":[], "pred_3":[], "pred_4":[],
+              "target_1":[], "target_2":[], "target_3":[], "target_4":[],}
+    signature_fn = model.signatures[
+        tf.saved_model.DEFAULT_SERVING_SIGNATURE_DEF_KEY]
+
+    examples = next(iter(dataset.batch(num_samples)))
+    for i in tqdm(range(34116, num_samples)):
+        example = tf.reshape(examples[i], (1,))
+        input_graph = tfgnn.parse_example(graph_spec, example)
+        input_dict = {"examples": example}
+        output_dict = signature_fn(**input_dict)
+        logits = np.round(output_dict["coupling_constants"], 2)
+        labels = input_graph.node_sets["_readout"].__getitem__("coupling").to_tensor()[0]
+        smiles = input_graph.context.__getitem__("smiles")
+        smiles = tf.get_static_value(smiles).astype(str)[0][0][0]
+        mol_id = input_graph.context.__getitem__("_mol_id")
+        mol_id = tf.get_static_value(mol_id).astype(str)[0][0][0]
+        index = input_graph.edge_sets["_readout/coupling"].adjacency.source[0]
+        if logits.ndim == 1:
+            logits = [logits]
+
+        for j, predicted_couplings in enumerate(logits):
+            print(predicted_couplings)
+            target_couplings = labels[j]
+            output["molecule"].append(smiles)
+            output["mol_id"].append(mol_id)
+            output["index"].append(tf.get_static_value(index[j]))
+            mae = tf.keras.losses.MeanAbsoluteError(reduction="sum")
+            output["mae"].append(tf.get_static_value(tf.math.reduce_mean(mae(y_true=target_couplings, y_pred=predicted_couplings))))
+            output["target_coupling"].append(tf.get_static_value(target_couplings))
+            output["predicted_coupling"].append(tf.get_static_value(predicted_couplings))
+
+            output["pred_1"].append(tf.get_static_value(predicted_couplings[0]))
+            output["pred_2"].append(tf.get_static_value(predicted_couplings[1]))
+            output["pred_3"].append(tf.get_static_value(predicted_couplings[2]))
+            output["pred_4"].append(tf.get_static_value(predicted_couplings[3]))
+
+            output["target_1"].append(tf.get_static_value(target_couplings[0]))
+            output["target_2"].append(tf.get_static_value(target_couplings[1]))
+            output["target_3"].append(tf.get_static_value(target_couplings[2]))
+            output["target_4"].append(tf.get_static_value(target_couplings[3]))
+    
+    output_df = pd.DataFrame.from_dict(output)
+    print(output_df)
+    total = len(output_df)
+    print("First coupling MAE: " + str(tf.get_static_value(tf.math.reduce_mean(mae(y_true=output["pred_1"], y_pred=output["target_1"])))))
+    print("Second coupling MAE: " + str(tf.get_static_value(tf.math.reduce_mean(mae(y_true=output["pred_2"], y_pred=output["target_2"])))))
+    print("Third coupling MAE: " + str(tf.get_static_value(tf.math.reduce_mean(mae(y_true=output["pred_3"], y_pred=output["target_3"])))))
+    print("Fourth coupling MAE: " + str(tf.get_static_value(tf.math.reduce_mean(mae(y_true=output["pred_4"], y_pred=output["target_4"])))))
+    print("Mean MAE: " + str(output_df["mae"].mean()))
+
+    output_df.to_csv(path + "data/own_data/coupling_results.csv.gz", compression='gzip')
+
+def predict_shift(path, data):
+    graph_schema = tfgnn.read_schema(path + "code/predicting_model/GraphSchema.pbtxt")
+    graph_spec = tfgnn.create_graph_spec_from_schema_pb(graph_schema)
+    shift_model = tf.saved_model.load(path + "code/predicting_model/Shift/gnn/models/test_model")
+    signature_fn = shift_model.signatures[tf.saved_model.DEFAULT_SERVING_SIGNATURE_DEF_KEY]
+    example = tf.reshape(data, (1,))
+    input_graph = tfgnn.parse_example(graph_spec, example)
+    input_dict = {"examples": example}
+    output_dict = signature_fn(**input_dict)
+    logits = output_dict["shifts"]
+
+    return logits.numpy().flatten()
+
+def predict_shape(path, data):
+    graph_schema = tfgnn.read_schema(path + "code/predicting_model/GraphSchemaMult.pbtxt")
+    graph_spec = tfgnn.create_graph_spec_from_schema_pb(graph_schema)
+    shape_model = tf.saved_model.load(path + "code/predicting_model/Shape/gnn/models/shape_model_best")
+    signature_fn = shape_model.signatures[tf.saved_model.DEFAULT_SERVING_SIGNATURE_DEF_KEY]
+    example = tf.reshape(data, (1,))
+    input_graph = tfgnn.parse_example(graph_spec, example)
+    input_dict = {"examples": example}
+    output_dict = signature_fn(**input_dict)
+    logits = output_dict["shape"]
+    shapes = [convert_shape_one_hot(x) for x in logits]
+    shapes = [shape.rstrip("s") for shape in shapes]
+    shapes = ["s" if shape == '' else shape for shape in shapes]
+
+    return shapes
+
+def predict_coupling(path, data):
+    graph_schema = tfgnn.read_schema(path + "code/predicting_model/GraphSchemaCoupling.pbtxt")
+    graph_spec = tfgnn.create_graph_spec_from_schema_pb(graph_schema)
+    coupling_model = tf.saved_model.load(path + "code/predicting_model/Coupling/gnn/models/coupling_model_best")
+    signature_fn = coupling_model.signatures[tf.saved_model.DEFAULT_SERVING_SIGNATURE_DEF_KEY]
+    example = tf.reshape(data, (1,))
+    input_graph = tfgnn.parse_example(graph_spec, example)
+    input_dict = {"examples": example}
+    output_dict = signature_fn(**input_dict)
+    logits = output_dict["coupling_constants"]
+    logits = np.round(logits.numpy(), 2)
+    couplings = np.empty(shape=(0,4), dtype=str)
+    for predictions in logits:
+        coupling = ''
+        for i, value in enumerate(predictions):
+            if i == 0 and (value == 0.0 or -0.0):
+                coupling += '-'
+                break
+            if value == 0.0 or -0.0:
+                continue
+            coupling += str(value)
+            coupling += ';'
+
+        couplings = np.append(couplings, coupling[:-1])
+        
+    couplings = ["-" if coupling == '' else coupling for coupling in couplings]
+    return couplings
+
+def predict_all(path, data):
+    result = {"molecule":[], "index":[], "shift":[], "shape":[], "couplings":[]}
+    for smiles in data:
+        mol_df, atom_df, bond_df, distance_df = create_dictionary(2, path, type=type, smiles=smiles)
+        shift = predict_shift(path, create_single_tensor(mol_df, atom_df, bond_df, distance_df, type="Shift"))
+        
+        print(atom_df.loc[atom_df["atom_symbol"] == "H", ["mol_id", "atom_idx", "Shift", "Shape", "Coupling"]])
+
+        shape = predict_shape(path, create_single_tensor(mol_df, atom_df, bond_df, distance_df, type="Shape"))
+
+        print(atom_df.loc[atom_df["atom_symbol"] == "H", ["mol_id", "atom_idx", "Shift", "Shape", "Coupling"]])
+
+        coupling = predict_coupling(path, create_single_tensor(mol_df, atom_df, bond_df, distance_df, type="Coupling"))
+        atom_df["Coupling"] = atom_df["Coupling"].astype(object)
+
+        print(atom_df.loc[atom_df["atom_symbol"] == "H", ["mol_id", "atom_idx", "Shift", "Shape", "Coupling"]])
+
+        result["molecule"].extend([mol_df["smiles"].values[0]] * mol_df["n_pro"].values[0])
+        result["index"].extend(atom_df.loc[atom_df["atom_symbol"] == "H", "atom_idx"].values)
+        print(shift)
+        result["shift"].extend(shift)
+        result["shape"].extend(shape)
+        result["couplings"].extend(coupling)
+        
+    results = pd.DataFrame.from_dict(result)
+    return results
 
 
 def check_sample(dataset):
@@ -327,6 +421,7 @@ def check_sample(dataset):
         for bond in atom.GetBonds():
             print(bond.GetBeginAtomIdx())
             print(bond.GetEndAtomIdx())
+            
 
 def evaluate_sample(dataset, model, index):
     output = {"molecule":[], "mae":[], "reverse_mae":[]}
@@ -520,17 +615,13 @@ def visualize_errors(path, results, dft=False):
     plt.show()'''
 
 def check_graph(dataset):
-    num_samples = 7454
-    for i in range(5287, 5317):
+    num_samples = 10
+    for i in range(num_samples):
         examples = next(iter(dataset.batch(num_samples)))
         example = tf.reshape(examples[i], (1,))
         input_graph = tfgnn.parse_example(graph_spec, example)
-        mol_id = input_graph.context.__getitem__("_mol_id")
-        mol_id = tf.get_static_value(mol_id).astype(str)[0][0]
-        if mol_id == str(20045567):
-            print(input_graph.context.__getitem__("smiles")[0])
-            print(input_graph.node_sets["atom"].__getitem__("chiral_tag")[0])
-            return input_graph.node_sets["atom"].__getitem__("chiral_tag")[0]
+        print(input_graph)
+        print(input_graph.node_sets["_readout"].__getitem__("coupling"))
         
 
 
@@ -539,17 +630,23 @@ if __name__ == "__main__":
     #path = "/home1/s3665828/code/CASCADE/"
     path = "C:/Users/niels/Documents/repo/CASCADE/"
 
-    graph_schema = tfgnn.read_schema(path + "code/predicting_model/GraphSchemaMult.pbtxt")
+    predict_all(path, ["C#CCC1CCOCO1", "OC12CC1CC(=O)OC2"])
+
+    #graph_schema = tfgnn.read_schema(path + "code/predicting_model/GraphSchemaMult.pbtxt")
+    graph_schema = tfgnn.read_schema(path + "code/predicting_model/GraphSchemaCoupling.pbtxt")
     graph_spec = tfgnn.create_graph_spec_from_schema_pb(graph_schema)
     #model = tf.saved_model.load(path + "code/predicting_model/Shift/DFTNN/gnn/models/DFT_model_new")
-    model = tf.saved_model.load(path + "code/predicting_model/Shape/gnn/models/mult_weight_model_4")
+    model = tf.saved_model.load(path + "code/predicting_model/Coupling/gnn/models/coupling_model_best")
     signature_fn = model.signatures[
         tf.saved_model.DEFAULT_SERVING_SIGNATURE_DEF_KEY]
     
-    dataset_provider = runner.TFRecordDatasetProvider(filenames=[path + "data/own_data/Shape/own_4_train.tfrecords"])
-    dataset = dataset_provider.get_dataset(tf.distribute.InputContext())
+    #dataset_provider = runner.TFRecordDatasetProvider(filenames=[path + "data/own_data/Coupling/own_train.tfrecords.gzip"])
+    #dataset = dataset_provider.get_dataset(tf.distribute.InputContext())
+    dataset = tf.data.TFRecordDataset([path + "data/own_data/Coupling/own_train.tfrecords.gzip"], compression_type="GZIP")
+    #check_graph(dataset)
 
-    evaluate_model_shapes(dataset, model, path)
+    #evaluate_model_coupling(dataset, model, path)
+    #evaluate_model_shapes(dataset, model, path)
 
     #plot_results_hist(pd.read_csv(path + "data/own_data/own_data_results.csv.gz", index_col=0))
     #plot_shift_errors(pd.read_csv(path + "data/own_data/own_shift_results.csv.gz", index_col=0))

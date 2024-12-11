@@ -131,28 +131,28 @@ if __name__ == "__main__":
     
     batch_size = 32
     initial_learning_rate = 5E-4
-    epochs = 10
+    epochs = 1
     epoch_divisor = 1
 
-    train_path = path + "data/own_data/shift/DFT_train.tfrecords"
-    val_path = path + "data/own_data/shift/DFT_valid.tfrecords"
+    train_path = path + "data/own_data/Shift/own_train.tfrecords.gzip"
+    val_path = path + "data/own_data/Shift/own_valid.tfrecords.gzip"
 
 
     #train_size = 8
     #valid_size = 2
     #test_size = 2
 
-    #train_size = 63324
-    #valid_size = 13569
-    #test_size = 13571
+    train_size = 63324
+    valid_size = 13569
+    test_size = 13571
 
     #train_size = 175324
     #valid_size = 37570
     #test_size =  37570
 
-    train_size = 5217
-    valid_size = 1118
-    test_size = 1119
+    #train_size = 5217
+    #valid_size = 1118
+    #test_size = 1119
 
     steps_per_epoch = train_size // batch_size // epoch_divisor
     validation_steps = valid_size // batch_size // epoch_divisor
@@ -160,8 +160,8 @@ if __name__ == "__main__":
         initial_learning_rate, decay_steps=100000, decay_rate=0.96, staircase=True
     )
 
-    train_ds = tf.data.TFRecordDataset([train_path])
-    val_ds = tf.data.TFRecordDataset([val_path])
+    train_ds = tf.data.TFRecordDataset([train_path], compression_type="GZIP")
+    val_ds = tf.data.TFRecordDataset([val_path], compression_type="GZIP")
     train_ds = train_ds.batch(batch_size=batch_size).repeat()
     val_ds = val_ds.batch(batch_size=batch_size)
 
@@ -193,8 +193,8 @@ if __name__ == "__main__":
     model.compile(tf.keras.optimizers.Adam(learning_rate), loss=loss, metrics=metrics)
     model.summary()
 
-    code_path = path + "code/predicting_model/Shift/DFTNN/"
-    filepath = code_path + "gnn/models/DFT_model/checkpoint.weights.h5"
+    code_path = path + "code/predicting_model/Shift/"
+    filepath = code_path + "gnn/models/test_model/checkpoint.weights.h5"
     log_dir = code_path + "logs/fit/" + datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
     tensorboard_callback = tf.keras.callbacks.TensorBoard(log_dir=log_dir, histogram_freq=1)
     checkpoint = tf.keras.callbacks.ModelCheckpoint(filepath, save_best_only=True, save_freq="epoch", verbose=1, monitor="val_mean_absolute_error", save_weights_only=True)
@@ -209,6 +209,6 @@ if __name__ == "__main__":
     serving_logits = model(serving_model_input)
     serving_output = {"shifts": serving_logits}
     exported_model = tf.keras.Model(serving_input, serving_output)
-    exported_model.export(code_path + "gnn/models/DFT_model")
+    exported_model.export(code_path + "gnn/models/test_model")
    
     #for layer in model.layers: print(layer.get_config(), layer.get_weights())
