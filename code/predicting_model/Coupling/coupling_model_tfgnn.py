@@ -147,7 +147,7 @@ def _build_model(trial, graph_tensor_spec):
         final = tf.keras.layers.Dense(1)(logits)
     else:
         final = tf.keras.layers.GRU(1, return_sequences=True)(logits)'''
-    final = tf.keras.layers.Dense(1)(logits)
+    final = tf.keras.layers.Dense(1, activation="relu")(logits)
     final = tf.squeeze(final)
 
     return tf.keras.Model(inputs=[input_graph], outputs=[final])
@@ -156,17 +156,21 @@ def _build_model(trial, graph_tensor_spec):
 def add_sample_weights(input_data, target_data):
     weights_tensor = tf.constant([1.0,0.4,0.15,0.05], dtype=tf.float32)
     sample_weights = tf.tile(tf.expand_dims(weights_tensor, axis=0), [tf.shape(target_data)[0], 1])
-
+    print(target_data)
+    print(tf.shape(target_data))
+    print(sample_weights)
+    print(tf.shape(sample_weights))
     return input_data, target_data, sample_weights
 
 
 def objective(trial):
     #path = "/home1/s3665828/code/CASCADE/"
-    #path = "/home/s3665828/Documents/Masters_Thesis/repo/CASCADE/"
-    path = "C:/Users/niels/Documents/repo/CASCADE/"
+    path = "/home/s3665828/Documents/Masters_Thesis/repo/CASCADE/"
+    #path = "C:/Users/niels/Documents/repo/CASCADE/"
+
     batch_size = 32
     initial_learning_rate = 5E-4
-    epochs = 10
+    epochs = 1
     epoch_divisor = 1
 
     train_path = path + "data/own_data/Coupling/own_train.tfrecords.gzip"
@@ -212,12 +216,12 @@ def objective(trial):
     loss = tf.keras.losses.MeanAbsoluteError()
     metrics = [tf.keras.losses.MeanAbsoluteError()]
 
-    #model.compile(tf.keras.optimizers.Adam(learning_rate), loss=loss, metrics=metrics, sample_weight_mode="temporal", weighted_metrics=[])
-    model.compile(tf.keras.optimizers.Adam(learning_rate), loss=loss, metrics=metrics)
+    model.compile(tf.keras.optimizers.Adam(learning_rate), loss=loss, metrics=metrics, sample_weight_mode="temporal", weighted_metrics=[])
+    #model.compile(tf.keras.optimizers.Adam(learning_rate), loss=loss, metrics=metrics)
     model.summary()
 
-    #train_ds = train_ds.map(lambda x, y: add_sample_weights(x, y))
-    #val_ds = val_ds.map(lambda x, y: add_sample_weights(x, y))
+    train_ds = train_ds.map(lambda x, y: add_sample_weights(x, y))
+    val_ds = val_ds.map(lambda x, y: add_sample_weights(x, y))
 
     code_path = path + "code/predicting_model/Coupling/"
     #filepath = code_path + "gnn/models/coupling_model_" + str(trial.number) + "/checkpoint.weights.h5"
