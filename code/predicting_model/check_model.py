@@ -323,7 +323,7 @@ def evaluate_model_coupling(dataset, model, path):
 def predict_shift(path, data):
     graph_schema = tfgnn.read_schema(path + "code/predicting_model/GraphSchema.pbtxt")
     graph_spec = tfgnn.create_graph_spec_from_schema_pb(graph_schema)
-    shift_model = tf.saved_model.load(path + "code/predicting_model/Shift/gnn/models/test_model")
+    shift_model = tf.saved_model.load(path + "code/predicting_model/Shift/gnn/models/shift_model_best")
     signature_fn = shift_model.signatures[tf.saved_model.DEFAULT_SERVING_SIGNATURE_DEF_KEY]
     example = tf.reshape(data, (1,))
     input_graph = tfgnn.parse_example(graph_spec, example)
@@ -382,26 +382,18 @@ def predict_all(path, data):
     for smiles in data:
         mol_df, atom_df, bond_df, distance_df = create_dictionary(2, path, type=type, smiles=smiles)
         shift = predict_shift(path, create_single_tensor(mol_df, atom_df, bond_df, distance_df, type="Shift"))
-        
-        print(atom_df.loc[atom_df["atom_symbol"] == "H", ["mol_id", "atom_idx", "Shift", "Shape", "Coupling"]])
-
         shape = predict_shape(path, create_single_tensor(mol_df, atom_df, bond_df, distance_df, type="Shape"))
-
-        print(atom_df.loc[atom_df["atom_symbol"] == "H", ["mol_id", "atom_idx", "Shift", "Shape", "Coupling"]])
-
         coupling = predict_coupling(path, create_single_tensor(mol_df, atom_df, bond_df, distance_df, type="Coupling"))
-        atom_df["Coupling"] = atom_df["Coupling"].astype(object)
-
-        print(atom_df.loc[atom_df["atom_symbol"] == "H", ["mol_id", "atom_idx", "Shift", "Shape", "Coupling"]])
-
+        #atom_df["Coupling"] = atom_df["Coupling"].astype(object)
         result["molecule"].extend([mol_df["smiles"].values[0]] * mol_df["n_pro"].values[0])
         result["index"].extend(atom_df.loc[atom_df["atom_symbol"] == "H", "atom_idx"].values)
-        print(shift)
         result["shift"].extend(shift)
         result["shape"].extend(shape)
         result["couplings"].extend(coupling)
         
     results = pd.DataFrame.from_dict(result)
+    results.to_csv(path + "data/own_data/all_results.csv.gz", compression='gzip')
+    print(results)
     return results
 
 
@@ -614,6 +606,48 @@ def visualize_errors(path, results, dft=False):
     plt.colorbar(label="MAE", orientation="horizontal")
     plt.show()'''
 
+def visualize_all(path, results):
+    with PdfPages(path + 'data/own_data/output.pdf') as pdf:
+        for smiles in results["molecule"].unique():
+            sample_results = results.loc[results["molecule"] == smiles]
+
+            mol = Chem.MolFromSmiles(smiles)
+            mol = Chem.AddHs(mol)
+
+            AllChem.Compute2DCoords(mol)
+            d = Draw.rdMolDraw2D.MolDraw2DCairo(500, 500)
+            atom_data = results.loc[results["molecule"] == smiles]
+
+            for atom in mol.GetAtoms():
+                index = atom.GetIdx()
+                matching_data = atom_data.loc[atom_data["index"] == index]
+                if not matching_data.empty:
+                    rounded_shift = round(matching_data["shift"].values[0], 2)
+                    atom.SetProp('atomNote', str(rounded_shift) + "<sup>" + 
+                                 str(matching_data["shape"].values[0]) + "</sup><sub>" +
+                                 str(matching_data["couplings"].values[0]) + "</sub>")
+                    
+            Draw.rdMolDraw2D.PrepareAndDrawMolecule(d, mol)
+            d.FinishDrawing()
+            d.WriteDrawingText(path + "data/own_data/mol.png")
+
+            mol_image = plt.imread(path + "data/own_data/mol.png")
+
+            fig = plt.figure(figsize=(10,8))
+            gs = gridspec.GridSpec(2, 1, height_ratios=[8, 1])
+            ax0 = plt.subplot(gs[0])
+            ax0.set_title(smiles)
+            print(smiles)
+            print(sample_results.drop(["molecule"], axis=1))
+            ax0.imshow(mol_image)
+            plt.axis('off')
+
+            plt.tight_layout()
+            #plt.show()
+
+            pdf.savefig(fig, bbox_inches='tight')
+
+
 def check_graph(dataset):
     num_samples = 10
     for i in range(num_samples):
@@ -626,11 +660,12 @@ def check_graph(dataset):
 
 
 if __name__ == "__main__":
-    #path = "/home/s3665828/Documents/Masters_Thesis/repo/CASCADE/"
+    path = "/home/s3665828/Documents/Masters_Thesis/repo/CASCADE/"
     #path = "/home1/s3665828/code/CASCADE/"
-    path = "C:/Users/niels/Documents/repo/CASCADE/"
+    #path = "C:/Users/niels/Documents/repo/CASCADE/"
 
-    predict_all(path, ["C#CCC1CCOCO1", "OC12CC1CC(=O)OC2"])
+    results = predict_all(path, ["C#CCC1CCOCO1", "OC12CC1CC(=O)OC2", "CC(O)C1CC(=C)C=C1", "C=C1CC=CO1", "C(C(Cl)Cl)Cl", "CCOC(=O)C"])
+    visualize_all(path, results)
 
     #graph_schema = tfgnn.read_schema(path + "code/predicting_model/GraphSchemaMult.pbtxt")
     graph_schema = tfgnn.read_schema(path + "code/predicting_model/GraphSchemaCoupling.pbtxt")
