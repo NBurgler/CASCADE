@@ -43,8 +43,7 @@ def rbf_expansion(distances, mu=0, delta=0.1, kmax=256):
 
 def set_initial_node_state(node_set, *, node_set_name):
     # embed the different input features
-    flattened_shape = tf.keras.layers.Flatten()(node_set["shape"])
-    one_hot_inputs = tf.keras.layers.Concatenate()([node_set["atom_sym"], node_set["chiral_tag"], node_set["hybridization"], flattened_shape])
+    one_hot_inputs = tf.keras.layers.Concatenate()([node_set["atom_sym"], node_set["chiral_tag"], node_set["hybridization"]])
 
     
     integer_inputs = tf.cast(tf.keras.layers.Concatenate()([node_set["degree"], node_set["formal_charge"], node_set["is_aromatic"], 
@@ -124,33 +123,34 @@ def _build_model(trial, graph_tensor_spec):
             )}   
         )(graph)
 
-    readout_features = tfgnn.keras.layers.StructuredReadout("coupling")(graph)
-    logits = readout_layers()(readout_features)
+    shape_branch = tfgnn.keras.layers.StructuredReadout("hydrogen")(graph)
+    shape_branch = readout_layers()(shape_branch)
+    shape_branch = tf.keras.layers.Dense(128, activation="relu")(shape_branch)
+    shape_branch = tf.keras.layers.RepeatVector(4)(shape_branch)
+    shape_branch = tf.keras.layers.GRU(256, return_sequences=True)(shape_branch)
+    shape_branch = tf.keras.layers.GRU(128, return_sequences=True)(shape_branch)
+    shape_branch = tf.keras.layers.GRU(64, return_sequences=True)(shape_branch)
+    shape_branch = tf.keras.layers.Dense(8)(shape_branch)
+    shape_branch_output = tf.keras.layers.Softmax()(shape_branch)
 
-    '''if trial.suggest_int("dense_before_gru", 0, 1):
-        logits = tf.keras.layers.Dense(128)(logits)'''
-    logits = tf.keras.layers.Dense(128)(logits)
-    logits = tf.keras.layers.RepeatVector(4)(logits)
-    #num_gru_layers = trial.suggest_int("num_gru_layers", 0, 3)
-    num_gru_layers = 2
-    if num_gru_layers == 1:
-        logits = tf.keras.layers.GRU(trial.suggest_int("gru1_size", 64, 128, step=64), return_sequences=True)(logits)
-    elif num_gru_layers == 2:
-        logits = tf.keras.layers.GRU(trial.suggest_int("gru1_size", 128, 256, step=128), return_sequences=True)(logits)
-        logits = tf.keras.layers.GRU(trial.suggest_int("gru2_size", 64, 128, step=64), return_sequences=True)(logits)
-    elif num_gru_layers == 3:
-        logits = tf.keras.layers.GRU(trial.suggest_int("gru1_size", 128, 256, step=128), return_sequences=True)(logits)
-        logits = tf.keras.layers.GRU(trial.suggest_int("gru2_size", 64, 128, step=64), return_sequences=True)(logits)
-        logits = tf.keras.layers.GRU(trial.suggest_int("gru3_size", 32, 64, step=32), return_sequences=True)(logits)
+    coupling_branch = tfgnn.keras.layers.StructuredReadout("hydrogen")(graph)
+    coupling_branch = readout_layers()(coupling_branch)
+    coupling_branch = tf.keras.layers.RepeatVector(4)(coupling_branch)
+    coupling_branch = tf.keras.layers.GRU(256, return_sequences=True)(coupling_branch)
+    coupling_branch = tf.keras.layers.GRU(128, return_sequences=True)(coupling_branch)
+    coupling_branch_output = tf.keras.layers.Dense(1, activation="relu")(coupling_branch)
 
-    '''if (trial.suggest_int("gru_or_dense", 0, 1)):
-        final = tf.keras.layers.Dense(1)(logits)
-    else:
-        final = tf.keras.layers.GRU(1, return_sequences=True)(logits)'''
-    final = tf.keras.layers.Dense(1, activation="relu")(logits)
-    final = tf.squeeze(final)
+    shape_branch_input = tf.keras.layers.Reshape((4, 1))(coupling_branch_output)
+    shape_branch_combined = tf.keras.layers.Concatenate(axis=-1)([shape_branch, shape_branch_input])
+    shape_branch = tf.keras.layers.Dense(32, activation="relu")(shape_branch_combined)
+    shape_output = tf.keras.layers.Dense(8, activation="softmax", name="shape")(shape_branch)
 
-    return tf.keras.Model(inputs=[input_graph], outputs=[final])
+    coupling_branch_input = shape_branch_output
+    coupling_branch_combined = tf.keras.layers.Concatenate(axis=-1)([coupling_branch, coupling_branch_input])
+    coupling_branch = tf.keras.layers.Dense(32, activation="relu")(coupling_branch_combined)
+    coupling_output = tf.keras.layers.Dense(1, activation="relu", name="coupling")(coupling_branch)
+
+    return tf.keras.Model(inputs=[input_graph], outputs={"shape": shape_output, "coupling": coupling_output})
 
 
 def add_sample_weights(input_data, target_data):
@@ -162,6 +162,31 @@ def add_sample_weights(input_data, target_data):
     print(tf.shape(sample_weights))
     return input_data, target_data, sample_weights
 
+class PreprocessingModel(tf.keras.Model):
+    def call(self, inputs):
+        graph_tensor = inputs.merge_batch_to_components()
+        shape_labels = tfgnn.keras.layers.Readout(node_set_name="_readout",
+                                        feature_name="shape")(graph_tensor)
+        coupling_labels = tfgnn.keras.layers.Readout(node_set_name="_readout",
+                                        feature_name="coupling")(graph_tensor)
+
+        graph_tensor = graph_tensor.remove_features(node_sets={"_readout": ["shape", "coupling"]})
+
+        labels = {
+            "shape": shape_labels,
+            "coupling": coupling_labels
+        }
+
+        return graph_tensor, labels
+    
+def weighted_cce(class_weights):
+    def loss(y_true, y_pred):
+        cce_loss = tf.keras.losses.categorical_crossentropy(y_true, y_pred)
+        weighted_loss = cce_loss * class_weights
+        return tf.reduce_mean(weighted_loss)
+    
+    return loss
+
 
 def objective(trial):
     #path = "/home1/s3665828/code/CASCADE/"
@@ -171,10 +196,10 @@ def objective(trial):
     batch_size = 32
     initial_learning_rate = 5E-4
     epochs = 1
-    epoch_divisor = 1
+    epoch_divisor = 100
 
-    train_path = path + "data/own_data/Coupling/own_train.tfrecords.gzip"
-    val_path = path + "data/own_data/Coupling/own_valid.tfrecords.gzip"
+    train_path = path + "data/own_data/Shape_And_Coupling/own_train.tfrecords.gzip"
+    val_path = path + "data/own_data/Shape_And_Coupling/own_valid.tfrecords.gzip"
 
     train_size = 63324
     valid_size = 13569
@@ -191,7 +216,7 @@ def objective(trial):
     train_ds = train_ds.batch(batch_size=batch_size).repeat()
     val_ds = val_ds.batch(batch_size=batch_size)
 
-    graph_schema = tfgnn.read_schema(path + "code/predicting_model/GraphSchemaCoupling.pbtxt")
+    graph_schema = tfgnn.read_schema(path + "code/predicting_model/GraphSchemaShapeAndCoupling.pbtxt")
     example_input_spec = tfgnn.create_graph_spec_from_schema_pb(graph_schema)
     train_ds = train_ds.map(tfgnn.keras.layers.ParseExample(example_input_spec))
     val_ds = val_ds.map(tfgnn.keras.layers.ParseExample(example_input_spec))
@@ -200,12 +225,8 @@ def objective(trial):
     # preprocessing
     preproc_input = tf.keras.layers.Input(type_spec=preproc_input_spec)
     #graph = tfgnn.keras.layers.MapFeatures(node_sets_fn=node_preprocessing, edge_sets_fn=edge_preprocessing)(preproc_input)
-    graph = preproc_input
-    graph = graph.merge_batch_to_components()
-    labels = tfgnn.keras.layers.Readout(node_set_name="_readout",
-                                    feature_name="coupling")(graph)
-    graph = graph.remove_features(node_sets={"_readout": ["coupling"]})
-    preproc_model = tf.keras.Model(preproc_input, (graph, labels))
+
+    preproc_model = PreprocessingModel()
     train_ds = train_ds.map(preproc_model)
     val_ds = val_ds.map(preproc_model)
 
@@ -213,19 +234,19 @@ def objective(trial):
     model_input_spec, _ = train_ds.element_spec
     model = _build_model(trial, model_input_spec)
 
-    loss = tf.keras.losses.MeanAbsoluteError()
-    metrics = [tf.keras.losses.MeanAbsoluteError()]
+    weighted_cce_loss = weighted_cce([1.0,0.4,0.15,0.05])
 
-    #model.compile(tf.keras.optimizers.Adam(learning_rate), loss=loss, metrics=metrics, sample_weight_mode="temporal", weighted_metrics=[])
+    loss = {"shape": weighted_cce_loss,
+            "coupling": tf.keras.losses.MeanAbsoluteError()}
+    metrics = {"shape": weighted_cce_loss,
+            "coupling": tf.keras.losses.MeanAbsoluteError()}
+
     model.compile(tf.keras.optimizers.Adam(learning_rate), loss=loss, metrics=metrics)
     model.summary()
 
-    #train_ds = train_ds.map(lambda x, y: add_sample_weights(x, y))
-    #val_ds = val_ds.map(lambda x, y: add_sample_weights(x, y))
-
-    code_path = path + "code/predicting_model/Coupling/"
+    code_path = path + "code/predicting_model/Shape_And_Coupling/"
     #filepath = code_path + "gnn/models/coupling_model_" + str(trial.number) + "/checkpoint.weights.h5"
-    filepath = code_path + "gnn/models/coupling_model_test/checkpoint.weights.h5"
+    filepath = code_path + "gnn/models/shape_and_coupling_model_test/checkpoint.weights.h5"
     log_dir = code_path + "logs/fit/" + datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
     tensorboard_callback = tf.keras.callbacks.TensorBoard(log_dir=log_dir, histogram_freq=1)
     checkpoint = tf.keras.callbacks.ModelCheckpoint(filepath, save_best_only=True, save_freq="epoch", verbose=1, monitor="val_loss", save_weights_only=True)
@@ -238,10 +259,11 @@ def objective(trial):
     preproc_input = tfgnn.keras.layers.ParseExample(example_input_spec)(serving_input)
     serving_model_input, _ = preproc_model(preproc_input)
     serving_logits = model(serving_model_input)
-    serving_output = {"coupling_constants": serving_logits}
+    print(serving_logits)
+    serving_output = {"shape": serving_logits["shape"], "coupling_constants": serving_logits["coupling"]}
     exported_model = tf.keras.Model(serving_input, serving_output)
     #exported_model.export(code_path + "gnn/models/coupling_model_" + str(trial.number))
-    exported_model.export(code_path + "gnn/models/coupling_model_test")
+    exported_model.export(code_path + "gnn/models/shape_and_coupling_model_test")
     
     return min(history.history['val_loss'])
 

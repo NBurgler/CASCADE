@@ -515,7 +515,6 @@ def create_tensors(path, name, type="Shift"):
     print("Testing set size: " + str(n_test))
 
     for idx, mol_id in tqdm(enumerate(mol_df["mol_id"])):
-        if idx == 10: break
         mol_data = mol_df.loc[mol_df["mol_id"] == mol_id]
         atom_data = atom_df.loc[atom_df["mol_id"] == mol_id]
         bond_data = bond_df.loc[bond_df["mol_id"] == mol_id]
@@ -544,6 +543,7 @@ def create_tensors(path, name, type="Shift"):
         else:
             test_data.write(example.SerializeToString())
 
+
 def create_single_tensor(mol_data, atom_data, bond_data, distance_data, type="Shift"):
     if type == "Shift":
         if "n_distance" not in mol_data.columns:
@@ -561,12 +561,133 @@ def create_single_tensor(mol_data, atom_data, bond_data, distance_data, type="Sh
     example = tfgnn.write_example(graph_tensor)
     return example.SerializeToString()
 
+
+def create_graph_tensor_combined(mol_data, atom_data, bond_data, distance_data, shift_data):
+    H_indices = atom_data.index[atom_data["atom_symbol"] == "H"].tolist()
+    atom_syms = one_hot_encode_atoms(atom_data["atom_symbol"])
+    chiral_tags = tf.one_hot(atom_data["chiral_tag"], 9)
+    hybridizations = tf.one_hot(atom_data["hybridization"], 9)
+    stereo = tf.one_hot(bond_data["stereo"], 8)
+    bond_type = tf.one_hot(bond_data["bond_type"], 22)
+    shape = one_hot_encode_shape(atom_data["Shape"])
+    coupling = convert_coupling_constants(atom_data["Coupling"])
+    shift = np.zeros(mol_data["n_atoms"].values)
+    shift[H_indices] = shift_data.loc[shift_data["mol_id"] == mol_data["mol_id"].values[0], "predicted_shift"]
+
+    graph_tensor = tfgnn.GraphTensor.from_pieces(
+
+        context = tfgnn.Context.from_fields(features = {"smiles": mol_data["smiles"],
+                                                        "_mol_id": mol_data["mol_id"]}),
+
+        node_sets = {
+            "atom": tfgnn.NodeSet.from_fields(
+                sizes = mol_data["n_atoms"],
+                features = {"atom_sym": atom_syms,
+                            "chiral_tag": chiral_tags,
+                            "degree": atom_data["degree"],
+                            "formal_charge": atom_data["formal_charge"],
+                            "hybridization": hybridizations,
+                            "is_aromatic": atom_data["is_aromatic"].astype(int),
+                            "no_implicit": atom_data["no_implicit"].astype(int),
+                            "num_Hs": atom_data["num_Hs"],
+                            "valence": atom_data["valence"],
+                            "shift": shift}
+            ),
+            "_readout": tfgnn.NodeSet.from_fields(
+                sizes = mol_data["n_pro"],
+                features = {"shape": shape[H_indices],
+                            "coupling": coupling[H_indices]}
+            )
+        },
+
+        edge_sets = {
+            "bond": tfgnn.EdgeSet.from_fields(
+                sizes = mol_data["n_bonds"],
+                adjacency = tfgnn.Adjacency.from_indices(
+                    source = ("atom", bond_data["source"]),
+                    target = ("atom", bond_data["target"])),
+                features = {"bond_type": bond_type,
+                            "distance": bond_data["distance"].astype('float32'),
+                            "is_conjugated": bond_data["is_conjugated"].astype(int),
+                            "stereo": stereo,
+                            "normalized_distance": bond_data["norm_distance"]}
+            ),
+            "interatomic_distance": tfgnn.EdgeSet.from_fields(
+                sizes = mol_data["n_distance"],
+                adjacency = tfgnn.Adjacency.from_indices(
+                    source = ("atom", distance_data["source"]),
+                    target = ("atom", distance_data["target"])),
+                features = {"distance": distance_data["distance"].astype('float32')}
+            ),
+            "_readout/hydrogen": tfgnn.EdgeSet.from_fields(
+                sizes = mol_data["n_pro"],
+                adjacency = tfgnn.Adjacency.from_indices(
+                    source = ("atom", H_indices),
+                    target = ("_readout", list(range(mol_data["n_pro"].values[0])))
+                )
+            )
+        }
+    )
+
+    return graph_tensor
+
+
+def create_tensors_from_predictions(path):
+    mol_df = pd.read_csv(path + "code/predicting_model/Shift/own_mol.csv.gz", index_col=0)
+    atom_df = pd.read_csv(path + "code/predicting_model/Shift/own_atom.csv.gz", index_col=0)
+    bond_df = pd.read_csv(path + "code/predicting_model/Shift/own_bond.csv.gz", index_col=0)
+    distance_df = pd.read_csv(path + "code/predicting_model/Shift/own_distance.csv.gz", index_col=0)
+
+    shift_data = pd.read_csv(path + "data/own_data/all_shift_results.csv.gz", index_col=0)
+
+    options = tf.io.TFRecordOptions(compression_type="GZIP")
+    train_data = tf.io.TFRecordWriter(path + "data/own_data/Shape_And_Coupling/own_train.tfrecords.gzip", options=options)
+    test_data = tf.io.TFRecordWriter(path + "data/own_data/Shape_And_Coupling/own_test.tfrecords.gzip", options=options)
+    valid_data = tf.io.TFRecordWriter(path + "data/own_data/Shape_And_Coupling/own_valid.tfrecords.gzip", options=options)
+    all_data = tf.io.TFRecordWriter(path + "data/own_data/Shape_And_Coupling/own_data.tfrecords.gzip", options=options)
+
+    total = len(mol_df)
+    total = 100
+    n_train = math.floor(total*0.7)
+    n_valid = math.floor(total*0.15)
+    n_test = total - n_train - n_valid
+    print("Total dataset size: " + str(total))
+    print("Training set size: " + str(n_train))
+    print("Validation set size: " + str(n_valid))
+    print("Testing set size: " + str(n_test))
+
+    for idx, mol_id in tqdm(enumerate(mol_df["mol_id"])):
+        if idx == 100: break
+        mol_data = mol_df.loc[mol_df["mol_id"] == mol_id]
+        atom_data = atom_df.loc[atom_df["mol_id"] == mol_id]
+        bond_data = bond_df.loc[bond_df["mol_id"] == mol_id]
+        distance_data = distance_df.loc[distance_df["mol_id"] == mol_id]
+
+        if (mol_data['n_pro'].values == 0):
+            continue
+        
+        mol_data.insert(5, "n_distance", len(distance_data["distance"]))
+        # make sure the index resets to 0 instead of continuing from the previous molecule
+        atom_data = atom_data.reset_index(drop=True)
+        graph_tensor = create_graph_tensor_combined(mol_data, atom_data, bond_data, distance_data, shift_data)
+
+        example = tfgnn.write_example(graph_tensor)
+        
+        all_data.write(example.SerializeToString())
+        if idx < n_train:
+            train_data.write(example.SerializeToString())
+        elif idx < (n_train+n_valid):
+            valid_data.write(example.SerializeToString())
+        else:
+            test_data.write(example.SerializeToString())
+
+
 def process_samples(key, path, type="Shift", save=False, file="", name="", smiles=""):
     # key 0 = process own data (txt)
     # key 1 = process DFT data (sdf + csv)
     # key 2 = process single sample (smiles)
     if (key == 0):
-        #create_dictionary(key, path, type, save, file, name)
+        create_dictionary(key, path, type, save, file, name)
         create_tensors(path, name, type)
     elif(key == 1):
         create_dictionary(key, path, type="Shift", save=save, name="DFT") 
@@ -580,5 +701,5 @@ if __name__ == "__main__":
     #path = "/home1/s3665828/code/CASCADE/"
     #path = "/home/s3665828/Documents/Masters_Thesis/repo/CASCADE/"
     path = "C:/Users/niels/Documents/repo/CASCADE/"
-
-    process_samples(0, path, file="data/own_data/own_data_with_id.txt", save=True, name="own", type="Coupling")
+    create_tensors_from_predictions(path)
+    #process_samples(0, path, file="data/own_data/own_data_with_id.txt", save=True, name="own", type="Coupling")

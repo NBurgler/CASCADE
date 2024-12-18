@@ -105,20 +105,11 @@ node_sets {
         features: {
             key:"shift"
             value: {
-                description: "The chemical shift of the atom."
-                dtype: DT_FLOAT
-                shape: { dim { size: -1 } }
+            description: "The chemical shift of the atom."
+            dtype: DT_FLOAT
+            shape: { dim { size: 1 } }
             }
-        }
-
-        features: {
-            key:"shape"
-            value: {
-                description: "The shape of the peak corresponding to the atom as a one-hot."
-                dtype: DT_FLOAT
-                shape: { dim { size: -1 } dim { size: 8 }}
-            }
-        }
+        }   
     }
 }
 
@@ -128,11 +119,20 @@ node_sets {
         description: "the readout nodes."
 
         features: {
-            key:"shift"
+            key:"coupling"
             value: {
-                description: "The chemical shift of the atom."
-                dtype: DT_FLOAT
-                shape: { dim { size: 1 } }
+            description: "The coupling constants of the peak."
+            dtype: DT_FLOAT
+            shape: { dim { size: 4 } }
+            }
+        }
+
+        features: {
+            key:"shape"
+            value: {
+            description: "The shape of the peak corresponding to the atom as a one-hot."
+            dtype: DT_FLOAT
+            shape: { dim { size: 4 } dim { size: 8 }}
             }
         }
     }       
@@ -153,7 +153,6 @@ edge_sets {
                 shape: { dim { size: 22 } }
             }
         }
-
         features: {
             key: "distance"
             value: {
@@ -211,9 +210,9 @@ edge_sets {
 }
 
 edge_sets {
-    key: "_readout/shift"
+    key: "_readout/hydrogen"
     value {
-        description: "Edges marking the hydrogen atoms for shift prediction"
+        description: "Edges marking the hydrogen atoms for coupling constant prediction"
         source: "atom"
         target: "_readout"
     }

@@ -162,27 +162,31 @@ def evaluate_model_shifts(dataset, model, path):
     signature_fn = model.signatures[
         tf.saved_model.DEFAULT_SERVING_SIGNATURE_DEF_KEY]
     examples = next(iter(dataset.batch(num_samples)))
-    for i in tqdm(range(num_samples)):
+    for i in tqdm(range(34117, 34120)):
         example = tf.reshape(examples[i], (1,))
         input_graph = tfgnn.parse_example(graph_spec, example)
         input_dict = {"examples": example}
         output_dict = signature_fn(**input_dict)
-        logits = output_dict["shifts"]
-        labels = tf.transpose(input_graph.node_sets["_readout"].__getitem__("shift").to_tensor())
+        logits = tf.squeeze(output_dict["shifts"])
+        labels = tf.squeeze(tf.transpose(input_graph.node_sets["_readout"].__getitem__("shift").to_tensor()))
         smiles = input_graph.context.__getitem__("smiles")
-        smiles = tf.get_static_value(smiles).astype(str)[0][0]
+        smiles = tf.get_static_value(tf.squeeze(smiles))
+        print(smiles)
         mol_id = input_graph.context.__getitem__("_mol_id")
-        mol_id = tf.get_static_value(mol_id).astype(str)[0][0]
+        mol_id = tf.get_static_value(tf.squeeze(mol_id))
         index = input_graph.edge_sets["_readout/shift"].adjacency.source[0]
+        if logits.ndim == 0:
+            logits = [logits]
+            labels = [labels]
         
         for j, predicted_shift in enumerate(logits):
             target_shift = labels[j]
             output["molecule"].append(smiles)
             output["mol_id"].append(mol_id)
             output["index"].append(tf.get_static_value(index[j]))
-            output["target_shift"].append(tf.get_static_value(target_shift)[0])
-            output["predicted_shift"].append(tf.get_static_value(predicted_shift)[0])
-            mae = tf.math.reduce_mean(tf.keras.losses.MeanAbsoluteError().call(y_true=target_shift, y_pred=predicted_shift))
+            output["target_shift"].append(tf.get_static_value(target_shift))
+            output["predicted_shift"].append(tf.get_static_value(predicted_shift))
+            mae = tf.keras.losses.MeanAbsoluteError().call(y_true=tf.expand_dims(target_shift, axis=-1), y_pred=tf.expand_dims(predicted_shift, axis=-1))
             output["mae"].append(tf.get_static_value(mae))
             
     print("done")
@@ -193,12 +197,9 @@ def evaluate_model_shifts(dataset, model, path):
 
 def evaluate_model_shapes(dataset, model, path):
     num_samples = 1000
-    #output = {"molecule":[], "mol_id":[], "index":[], "target_shape":[], "predicted_shape":[], "cce":[], 
-    #          "pred_1":[], "pred_2":[], "pred_3":[], "pred_4":[], "pred_5":[], "pred_6":[],
-    #          "target_1":[], "target_2":[], "target_3":[], "target_4":[], "target_5":[], "target_6":[],}
     output = {"molecule":[], "mol_id":[], "index":[], "target_shape":[], "predicted_shape":[], "cce":[], 
               "weighted_cce":[], "pred_1":[], "pred_2":[], "pred_3":[], "pred_4":[],
-              "target_1":[], "target_2":[], "target_3":[], "target_4":[],}
+              "target_1":[], "target_2":[], "target_3":[], "target_4":[]}
     signature_fn = model.signatures[
         tf.saved_model.DEFAULT_SERVING_SIGNATURE_DEF_KEY]
 
@@ -236,15 +237,11 @@ def evaluate_model_shapes(dataset, model, path):
             output["pred_2"].append(converted_predictions[1])
             output["pred_3"].append(converted_predictions[2])
             output["pred_4"].append(converted_predictions[3])
-            #output["pred_5"].append(converted_predictions[4])
-            #output["pred_6"].append(converted_predictions[5])
 
             output["target_1"].append(converted_labels[0])
             output["target_2"].append(converted_labels[1])
             output["target_3"].append(converted_labels[2])
             output["target_4"].append(converted_labels[3])
-            #output["target_5"].append(converted_labels[4])
-            #output["target_6"].append(converted_labels[5])
 
     
     output_df = pd.DataFrame.from_dict(output)
@@ -311,7 +308,6 @@ def evaluate_model_coupling(dataset, model, path):
     
     output_df = pd.DataFrame.from_dict(output)
     print(output_df)
-    total = len(output_df)
     print("First coupling MAE: " + str(tf.get_static_value(tf.math.reduce_mean(mae(y_true=output["pred_1"], y_pred=output["target_1"])))))
     print("Second coupling MAE: " + str(tf.get_static_value(tf.math.reduce_mean(mae(y_true=output["pred_2"], y_pred=output["target_2"])))))
     print("Third coupling MAE: " + str(tf.get_static_value(tf.math.reduce_mean(mae(y_true=output["pred_3"], y_pred=output["target_3"])))))
@@ -319,6 +315,110 @@ def evaluate_model_coupling(dataset, model, path):
     print("Mean MAE: " + str(output_df["mae"].mean()))
 
     output_df.to_csv(path + "data/own_data/coupling_results.csv.gz", compression='gzip')
+
+
+def evaluate_model_shape_and_coupling(dataset, model, path):
+    num_samples = 63324
+    output = {"molecule":[], "mol_id":[], "index":[], "target_coupling":[], "predicted_coupling":[],
+              "mae":[], "coupling_pred_1":[], "coupling_pred_2":[], "coupling_pred_3":[], "coupling_pred_4":[],
+              "coupling_target_1":[], "coupling_target_2":[], "coupling_target_3":[], "coupling_target_4":[],
+              "target_shape":[], "predicted_shape":[], "cce":[], "weighted_cce":[], "shape_pred_1":[], 
+              "shape_pred_2":[], "shape_pred_3":[], "shape_pred_4":[], "shape_target_1":[], "shape_target_2":[], 
+              "shape_target_3":[], "shape_target_4":[]}
+    signature_fn = model.signatures[
+        tf.saved_model.DEFAULT_SERVING_SIGNATURE_DEF_KEY]
+
+    examples = next(iter(dataset.batch(num_samples)))
+    for i in tqdm(range(num_samples)):
+        if i == 10: break
+        example = tf.reshape(examples[i], (1,))
+        input_graph = tfgnn.parse_example(graph_spec, example)
+        input_dict = {"examples": example}
+        output_dict = signature_fn(**input_dict)
+        coupling_logits = np.round(output_dict["coupling_constants"], 2)
+        shape_logits = output_dict["shape"]
+        print(coupling_logits)
+        print(shape_logits)
+        coupling_labels = input_graph.node_sets["_readout"].__getitem__("coupling").to_tensor()[0]
+        shape_labels = input_graph.node_sets["_readout"].__getitem__("shape").to_tensor()[0]
+        smiles = input_graph.context.__getitem__("smiles")
+        smiles = tf.get_static_value(smiles).astype(str)[0][0][0]
+        mol_id = input_graph.context.__getitem__("_mol_id")
+        mol_id = tf.get_static_value(mol_id).astype(str)[0][0][0]
+        index = input_graph.edge_sets["_readout/hydrogen"].adjacency.source[0]
+        if coupling_logits.ndim == 1:
+            coupling_logits = [coupling_logits]
+            shape_logits = [shape_logits]
+
+        for j, predicted_couplings in enumerate(coupling_logits):
+            #print(predicted_couplings)
+            target_couplings = coupling_labels[j]
+            output["molecule"].append(smiles)
+            output["mol_id"].append(mol_id)
+            output["index"].append(tf.get_static_value(index[j]))
+            mae = tf.keras.losses.MeanAbsoluteError(reduction="sum")
+            output["mae"].append(tf.get_static_value(tf.math.reduce_mean(mae(y_true=target_couplings, y_pred=predicted_couplings))))
+            output["target_coupling"].append(tf.get_static_value(target_couplings))
+            output["predicted_coupling"].append(tf.get_static_value(predicted_couplings))
+
+            output["coupling_pred_1"].append(tf.get_static_value(predicted_couplings[0]))
+            output["coupling_pred_2"].append(tf.get_static_value(predicted_couplings[1]))
+            output["coupling_pred_3"].append(tf.get_static_value(predicted_couplings[2]))
+            output["coupling_pred_4"].append(tf.get_static_value(predicted_couplings[3]))
+
+            output["coupling_target_1"].append(tf.get_static_value(target_couplings[0]))
+            output["coupling_target_2"].append(tf.get_static_value(target_couplings[1]))
+            output["coupling_target_3"].append(tf.get_static_value(target_couplings[2]))
+            output["coupling_target_4"].append(tf.get_static_value(target_couplings[3]))
+
+            predicted_shape = shape_logits[i]
+            print(predicted_shape)
+            converted_labels = convert_shape_one_hot(shape_labels[j])
+            converted_predictions = convert_shape_one_hot(predicted_shape)
+            target_shape = shape_labels[j]
+
+            cce = tf.keras.losses.CategoricalCrossentropy()
+            output["cce"].append(tf.get_static_value(tf.math.reduce_mean(cce(y_true=target_shape, y_pred=predicted_shape))))
+            output["weighted_cce"].append(tf.get_static_value(tf.math.reduce_mean(cce(y_true=target_shape, y_pred=predicted_shape, sample_weight=[1.0,0.4,0.15,0.05]))))
+            output["target_shape"].append(tf.get_static_value(converted_labels))
+            output["predicted_shape"].append(tf.get_static_value(converted_predictions))
+            print(converted_predictions)
+
+            output["shape_pred_1"].append(converted_predictions[0])
+            output["shape_pred_2"].append(converted_predictions[1])
+            output["shape_pred_3"].append(converted_predictions[2])
+            output["shape_pred_4"].append(converted_predictions[3])
+
+            output["shape_target_1"].append(converted_labels[0])
+            output["shape_target_2"].append(converted_labels[1])
+            output["shape_target_3"].append(converted_labels[2])
+            output["shape_target_4"].append(converted_labels[3])
+
+    
+    output_df = pd.DataFrame.from_dict(output)
+    print(output_df)
+    total = len(output_df)
+    print("First coupling MAE: " + str(tf.get_static_value(tf.math.reduce_mean(mae(y_true=output["coupling_pred_1"], y_pred=output["coupling_target_1"])))))
+    print("Second coupling MAE: " + str(tf.get_static_value(tf.math.reduce_mean(mae(y_true=output["coupling_pred_2"], y_pred=output["coupling_target_2"])))))
+    print("Third coupling MAE: " + str(tf.get_static_value(tf.math.reduce_mean(mae(y_true=output["coupling_pred_3"], y_pred=output["coupling_target_3"])))))
+    print("Fourth coupling MAE: " + str(tf.get_static_value(tf.math.reduce_mean(mae(y_true=output["coupling_pred_4"], y_pred=output["coupling_target_4"])))))
+    print("Mean MAE: " + str(output_df["mae"].mean()))
+
+    print("Correct prediction: " + str(round((len(output_df.loc[output_df["predicted_shape"] == output_df["target_shape"]])/total)*100, 2)) + "%")
+    print("First token correct: " + str(round((len(output_df.loc[output_df["shape_pred_1"] == output_df["shape_target_1"]])/total)*100, 2)) + "%")
+    print("Second token correct: " + str(round((len(output_df.loc[output_df["shape_pred_2"] == output_df["shape_target_2"]])/total)*100, 2)) + "%")
+    print("Third token correct: " + str(round((len(output_df.loc[output_df["shape_pred_3"] == output_df["shape_target_3"]])/total)*100, 2)) + "%")
+    print("Fourth token correct: " + str(round((len(output_df.loc[output_df["shape_pred_4"] == output_df["shape_target_4"]])/total)*100, 2)) + "%")
+    print("Mean CCE: " + str(round(output_df["cce"].mean(),2)))
+    print("Mean Weighted CCE: " + str(round(output_df["weighted_cce"].mean(),2)))
+    print(output_df["shape_pred_1"].value_counts(normalize=True) * 100)
+    print(output_df["shape_pred_2"].value_counts(normalize=True) * 100)
+    print(output_df["shape_pred_3"].value_counts(normalize=True) * 100)
+    print(output_df["shape_pred_4"].value_counts(normalize=True) * 100)
+
+    output_df.to_csv(path + "data/own_data/shape_and_coupling_results.csv.gz", compression='gzip')
+
+
 
 def predict_shift(path, data):
     graph_schema = tfgnn.read_schema(path + "code/predicting_model/GraphSchema.pbtxt")
@@ -442,7 +542,7 @@ def evaluate_sample(dataset, model, index):
 
 def evaluate_molecule(model, smiles):
     output = {"molecule":[], "index":[], "predicted_shift":[]}
-    example = process_samples(2, "", smiles="C#CCC1CCOCO1")
+    #example = process_samples(2, "", smiles="C#CCC1CCOCO1")
     example = tf.reshape(example, (1,))
     input_graph = tfgnn.parse_example(graph_spec, example)
     input_dict = {"examples": example}
@@ -660,24 +760,25 @@ def check_graph(dataset):
 
 
 if __name__ == "__main__":
-    path = "/home/s3665828/Documents/Masters_Thesis/repo/CASCADE/"
+    #path = "/home/s3665828/Documents/Masters_Thesis/repo/CASCADE/"
     #path = "/home1/s3665828/code/CASCADE/"
-    #path = "C:/Users/niels/Documents/repo/CASCADE/"
+    path = "C:/Users/niels/Documents/repo/CASCADE/"
 
-    results = predict_all(path, ["C#CCC1CCOCO1", "OC12CC1CC(=O)OC2", "CC(O)C1CC(=C)C=C1", "C=C1CC=CO1", "C(C(Cl)Cl)Cl", "CCOC(=O)C"])
-    visualize_all(path, results)
+    #results = predict_all(path, ["C#CCC1CCOCO1", "OC12CC1CC(=O)OC2", "CC(O)C1CC(=C)C=C1", "C=C1CC=CO1", "C(C(Cl)Cl)Cl", "CCOC(=O)C"])
+    #visualize_all(path, results)
 
     #graph_schema = tfgnn.read_schema(path + "code/predicting_model/GraphSchemaMult.pbtxt")
-    graph_schema = tfgnn.read_schema(path + "code/predicting_model/GraphSchemaCoupling.pbtxt")
+    graph_schema = tfgnn.read_schema(path + "code/predicting_model/GraphSchemaShapeAndCoupling.pbtxt")
     graph_spec = tfgnn.create_graph_spec_from_schema_pb(graph_schema)
     #model = tf.saved_model.load(path + "code/predicting_model/Shift/DFTNN/gnn/models/DFT_model_new")
-    model = tf.saved_model.load(path + "code/predicting_model/Coupling/gnn/models/coupling_model_best")
+    model = tf.saved_model.load(path + "code/predicting_model/Shape_And_Coupling/gnn/models/shape_and_coupling_model_test")
     signature_fn = model.signatures[
         tf.saved_model.DEFAULT_SERVING_SIGNATURE_DEF_KEY]
     
     #dataset_provider = runner.TFRecordDatasetProvider(filenames=[path + "data/own_data/Coupling/own_train.tfrecords.gzip"])
     #dataset = dataset_provider.get_dataset(tf.distribute.InputContext())
-    dataset = tf.data.TFRecordDataset([path + "data/own_data/Coupling/own_train.tfrecords.gzip"], compression_type="GZIP")
+    #dataset = tf.data.TFRecordDataset([path + "data/own_data/Shift/all_own_data.tfrecords.gzip"], compression_type="GZIP")
+    dataset = tf.data.TFRecordDataset([path + "data/own_data/Shape_And_Coupling/own_train.tfrecords.gzip"], compression_type="GZIP")
     #check_graph(dataset)
 
     #evaluate_model_coupling(dataset, model, path)
@@ -689,6 +790,7 @@ if __name__ == "__main__":
     #evaluate_model_shifts(dataset, model, path)
     #evaluate_model(dataset, model)
     #evaluate_sample(dataset, model, 2)
+    evaluate_model_shape_and_coupling(dataset, model, path)
     #plot_shift_errors(path)
 
     #visualize_shifts(path, evaluate_molecule(model, "C#CCC1CCOCO1"))
