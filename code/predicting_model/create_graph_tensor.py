@@ -11,12 +11,12 @@ import os
 
 from tqdm import tqdm
 
-def findEmbedding(mol):
+def findEmbedding(mol, numConfs):
     attempts = 0
     flag = 0
 
     while(flag == 0 and attempts <= 500):   # Attempt to find a proper embedding 500 times
-        AllChem.EmbedMolecule(mol, useRandomCoords=True)
+        AllChem.EmbedMultipleConfs(mol, numConfs=numConfs, useRandomCoords=True)
         try:
             AllChem.MMFFOptimizeMolecule(mol)
             flag = 1
@@ -46,11 +46,13 @@ def create_dictionary(key, path, type, save=False, filepath="", name="", smiles=
     atom_list = []
     bond_list = []
     distance_list = []
+    bad_mols = []
 
     if key == 0:    # own data
         file = open(path + filepath, 'r')
         text = file.read()
         samples = text.split('\n\n')
+        
         for sample in tqdm(samples):
             sampleSplit = sample.split("\n")
             if sampleSplit == ['']:
@@ -59,7 +61,7 @@ def create_dictionary(key, path, type, save=False, filepath="", name="", smiles=
             mol_id = sampleSplit[0]
             smiles = sampleSplit[1]
             mol = Chem.MolFromSmiles(smiles)
-            mol_entry, atom_entry, bond_entry, distance_entry = fill_dictionary(key, mol_id, mol, shift_data=sampleSplit)
+            mol_entry, atom_entry, bond_entry, distance_entry, bad_mols = fill_dictionary(key, mol_id, mol, shift_data=sampleSplit, bad_mols=bad_mols)
             mol_list.extend(mol_entry)
             atom_list.extend(atom_entry)
             bond_list.extend(bond_entry)
@@ -114,6 +116,7 @@ def create_dictionary(key, path, type, save=False, filepath="", name="", smiles=
     print(atom_df)
     print(bond_df)
     print(distance_df)
+    print(bad_mols)
 
     bond_df["norm_distance"] = (bond_df["distance"] - bond_df["distance"].mean())/bond_df["distance"].std()
 
@@ -124,10 +127,18 @@ def create_dictionary(key, path, type, save=False, filepath="", name="", smiles=
         distance_df.to_csv(path + "code/predicting_model/" + type + "/" + name + "_distance.csv.gz", compression='gzip')
 
     return mol_df, atom_df, bond_df, distance_df
+
+def average_distance_matrix(mol, numConfs):
+    distance_matrix = Chem.Get3DDistanceMatrix(mol, confId=0)
+    for i in range(1, numConfs):
+        distance_matrix += Chem.Get3DDistanceMatrix(mol, confId=i)
+
+    return (distance_matrix/numConfs)
     
 
-def fill_dictionary(key, mol_id, mol, shift_data=""):
+def fill_dictionary(key, mol_id, mol, shift_data="", bad_mols=[]):
     cutoff_distance = 5
+    numConfs = 1000
 
     mol_list = []
     atom_list = []
@@ -152,15 +163,18 @@ def fill_dictionary(key, mol_id, mol, shift_data=""):
         mol.GetConformer()
         embedding_found = 1
     except ValueError:  # make a new embedding
-        mol, embedding_found = findEmbedding(mol)
+        mol, embedding_found = findEmbedding(mol, numConfs)
         mol = Chem.AddHs(mol, addCoords=True)
     
     if (embedding_found):
         try:
-            distance_matrix = Chem.Get3DDistanceMatrix(mol)
+            distance_matrix = average_distance_matrix(mol, numConfs)
         except ValueError:
             bad_mol = Chem.RemoveHs(mol)
+            print(mol_id)
             print(Chem.MolToSmiles(bad_mol))
+            distance_matrix = np.zeros((n_atoms, n_atoms))
+            bad_mols.append(mol_id)
 
         iter_H = 0
 
@@ -232,7 +246,7 @@ def fill_dictionary(key, mol_id, mol, shift_data=""):
 
             bond_list.append(bond_dict)
 
-    return mol_list, atom_list, bond_list, distance_list
+    return mol_list, atom_list, bond_list, distance_list, bad_mols
     
 
 def one_hot_encode_atoms(atom_symbols):
@@ -699,7 +713,7 @@ def process_samples(key, path, type="Shift", save=False, file="", name="", smile
 
 if __name__ == "__main__":
     #path = "/home1/s3665828/code/CASCADE/"
-    #path = "/home/s3665828/Documents/Masters_Thesis/repo/CASCADE/"
-    path = "C:/Users/niels/Documents/repo/CASCADE/"
-    create_tensors_from_predictions(path)
-    #process_samples(0, path, file="data/own_data/own_data_with_id.txt", save=True, name="own", type="Coupling")
+    path = "/home/s3665828/Documents/Masters_Thesis/repo/CASCADE/"
+    #path = "C:/Users/niels/Documents/repo/CASCADE/"
+    #create_tensors_from_predictions(path)
+    process_samples(0, path, file="data/own_data/own_data_with_id.txt", save=True, name="own", type="Shift")
