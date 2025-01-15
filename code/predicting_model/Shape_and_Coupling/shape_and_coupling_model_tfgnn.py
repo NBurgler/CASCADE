@@ -123,32 +123,76 @@ def _build_model(trial, graph_tensor_spec):
             )}   
         )(graph)
 
-    shape_branch = tfgnn.keras.layers.StructuredReadout("hydrogen")(graph)
-    shape_branch = readout_layers()(shape_branch)
-    shape_branch = tf.keras.layers.Dense(128, activation="relu")(shape_branch)
-    shape_branch = tf.keras.layers.RepeatVector(4)(shape_branch)
-    shape_branch = tf.keras.layers.GRU(256, return_sequences=True)(shape_branch)
-    shape_branch = tf.keras.layers.GRU(128, return_sequences=True)(shape_branch)
-    shape_branch = tf.keras.layers.GRU(64, return_sequences=True)(shape_branch)
-    shape_branch = tf.keras.layers.Dense(8)(shape_branch)
-    shape_branch_output = tf.keras.layers.Softmax()(shape_branch)
+    architecture = trial.number
+    trial.set_user_attr("architecture", architecture)
 
-    coupling_branch = tfgnn.keras.layers.StructuredReadout("hydrogen")(graph)
-    coupling_branch = readout_layers()(coupling_branch)
-    coupling_branch = tf.keras.layers.RepeatVector(4)(coupling_branch)
-    coupling_branch = tf.keras.layers.GRU(256, return_sequences=True)(coupling_branch)
-    coupling_branch = tf.keras.layers.GRU(128, return_sequences=True)(coupling_branch)
-    coupling_branch_output = tf.keras.layers.Dense(1, activation="relu")(coupling_branch)
+    if architecture == 0:   # Same branch
+        graph_output = tfgnn.keras.layers.StructuredReadout("hydrogen")(graph)
+        graph_output = dense(256, activation="relu")(graph_output)
+        graph_output = dense(256, activation="relu")(graph_output)
+        graph_output = tf.keras.layers.RepeatVector(4)(graph_output)
+        graph_output = tf.keras.layers.GRU(256, return_sequences=True)(graph_output)
+        graph_output = tf.keras.layers.GRU(128, return_sequences=True)(graph_output)
+        graph_output = tf.keras.layers.GRU(64, return_sequences=True)(graph_output)
+        graph_output = tf.keras.layers.Dense(32, activation="relu")(graph_output)
 
-    shape_branch_input = tf.keras.layers.Reshape((4, 1))(coupling_branch_output)
-    shape_branch_combined = tf.keras.layers.Concatenate(axis=-1)([shape_branch, shape_branch_input])
-    shape_branch = tf.keras.layers.Dense(32, activation="relu")(shape_branch_combined)
-    shape_output = tf.keras.layers.Dense(8, activation="softmax", name="shape")(shape_branch)
+        shape_output = tf.keras.layers.Dense(8, activation="softmax", name="shape")(graph_output)
 
-    coupling_branch_input = shape_branch_output
-    coupling_branch_combined = tf.keras.layers.Concatenate(axis=-1)([coupling_branch, coupling_branch_input])
-    coupling_branch = tf.keras.layers.Dense(32, activation="relu")(coupling_branch_combined)
-    coupling_output = tf.keras.layers.Dense(1, activation="relu", name="coupling")(coupling_branch)
+        coupling_output = tf.keras.layers.Dense(1, activation="relu", name="coupling")(graph_output)
+
+    elif architecture == 1: # Same branch, use each others outputs
+        graph_output = tfgnn.keras.layers.StructuredReadout("hydrogen")(graph)
+        graph_output = dense(256, activation="relu")(graph_output)
+        graph_output = dense(256, activation="relu")(graph_output)
+        graph_output = tf.keras.layers.RepeatVector(4)(graph_output)
+        graph_output = tf.keras.layers.GRU(256, return_sequences=True)(graph_output)
+        graph_output = tf.keras.layers.GRU(128, return_sequences=True)(graph_output)
+        graph_output = tf.keras.layers.GRU(64, return_sequences=True)(graph_output)
+        graph_output = tf.keras.layers.Dense(32, activation="relu")(graph_output)
+
+        shape_branch_output = tf.keras.layers.Dense(8, activation="softmax")(graph_output)
+
+        coupling_branch_output = tf.keras.layers.Dense(1, activation="relu")(graph_output)
+
+        shape_branch_input = tf.keras.layers.Reshape((4, 1))(coupling_branch_output)
+        shape_branch_combined = tf.keras.layers.Concatenate(axis=-1)([shape_branch_output, shape_branch_input])
+        shape_branch = tf.keras.layers.Dense(64, activation="relu")(shape_branch_combined)
+        shape_branch = tf.keras.layers.Dense(32, activation="relu")(shape_branch)
+        shape_output = tf.keras.layers.Dense(8, activation="softmax", name="shape")(shape_branch)
+
+        coupling_branch_input = shape_branch_output
+        coupling_branch_combined = tf.keras.layers.Concatenate(axis=-1)([coupling_branch_output, coupling_branch_input])
+        coupling_branch = tf.keras.layers.Dense(64, activation="relu")(coupling_branch_combined)
+        coupling_branch = tf.keras.layers.Dense(32, activation="relu")(coupling_branch)
+        coupling_output = tf.keras.layers.Dense(1, activation="relu", name="coupling")(coupling_branch)
+
+    elif architecture == 2: # Same branch, use each others outputs
+        graph_output = tfgnn.keras.layers.StructuredReadout("hydrogen")(graph)
+        graph_output = dense(256, activation="relu")(graph_output)
+        graph_output = dense(256, activation="relu")(graph_output)
+        graph_output = tf.keras.layers.RepeatVector(4)(graph_output)
+        graph_output = tf.keras.layers.GRU(256, return_sequences=True)(graph_output)
+        graph_output = tf.keras.layers.GRU(128, return_sequences=True)(graph_output)
+        graph_output = tf.keras.layers.GRU(64, return_sequences=True)(graph_output)
+        graph_output = tf.keras.layers.Dense(32, activation="relu")(graph_output)
+
+        shape_branch_output = tf.keras.layers.Dense(8, activation="softmax")(graph_output)
+
+        coupling_branch_output = tf.keras.layers.Dense(1, activation="relu")(graph_output)
+
+        shape_branch_input = tf.keras.layers.Reshape((4, 1))(coupling_branch_output)
+        shape_branch_input = tf.keras.layers.Dense(64, activation="relu")(coupling_branch_output)
+        shape_branch_combined = tf.keras.layers.Concatenate(axis=-1)([shape_branch_output, shape_branch_input])
+        shape_branch = tf.keras.layers.Dense(64, activation="relu")(shape_branch_combined)
+        shape_branch = tf.keras.layers.Dense(32, activation="relu")(shape_branch)
+        shape_output = tf.keras.layers.Dense(8, activation="softmax", name="shape")(shape_branch)
+
+        coupling_branch_input = tf.keras.layers.Flatten()(shape_branch_output)
+        coupling_branch_input = tf.keras.layers.Dense(64, activation="relu")(shape_branch_output)
+        coupling_branch_combined = tf.keras.layers.Concatenate(axis=-1)([coupling_branch_output, coupling_branch_input])
+        coupling_branch = tf.keras.layers.Dense(64, activation="relu")(coupling_branch_combined)
+        coupling_branch = tf.keras.layers.Dense(32, activation="relu")(coupling_branch)
+        coupling_output = tf.keras.layers.Dense(1, activation="relu", name="coupling")(coupling_branch)
 
     return tf.keras.Model(inputs=[input_graph], outputs={"shape": shape_output, "coupling": coupling_output})
 
@@ -195,8 +239,8 @@ def objective(trial):
 
     batch_size = 32
     initial_learning_rate = 5E-4
-    epochs = 1
-    epoch_divisor = 100
+    epochs = 5
+    epoch_divisor = 1
 
     train_path = path + "data/own_data/Shape_And_Coupling/own_train.tfrecords.gzip"
     val_path = path + "data/own_data/Shape_And_Coupling/own_valid.tfrecords.gzip"
@@ -245,8 +289,8 @@ def objective(trial):
     model.summary()
 
     code_path = path + "code/predicting_model/Shape_And_Coupling/"
-    #filepath = code_path + "gnn/models/coupling_model_" + str(trial.number) + "/checkpoint.weights.h5"
-    filepath = code_path + "gnn/models/shape_and_coupling_model_test/checkpoint.weights.h5"
+    filepath = code_path + "gnn/models/shape_and_coupling_model_" + str(trial.number) + "/checkpoint.weights.h5"
+    #filepath = code_path + "gnn/models/shape_and_coupling_model_test/checkpoint.weights.h5"
     log_dir = code_path + "logs/fit/" + datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
     tensorboard_callback = tf.keras.callbacks.TensorBoard(log_dir=log_dir, histogram_freq=1)
     checkpoint = tf.keras.callbacks.ModelCheckpoint(filepath, save_best_only=True, save_freq="epoch", verbose=1, monitor="val_loss", save_weights_only=True)
@@ -262,31 +306,31 @@ def objective(trial):
     print(serving_logits)
     serving_output = {"shape": serving_logits["shape"], "coupling_constants": serving_logits["coupling"]}
     exported_model = tf.keras.Model(serving_input, serving_output)
-    #exported_model.export(code_path + "gnn/models/coupling_model_" + str(trial.number))
-    exported_model.export(code_path + "gnn/models/shape_and_coupling_model_test")
+    exported_model.export(code_path + "gnn/models/shape_and_coupling_model_" + str(trial.number))
+    #exported_model.export(code_path + "gnn/models/shape_and_coupling_model_test")
     
-    return min(history.history['val_loss'])
+    return min(history.history['val_loss']), min(history.history['val_shape_loss']), min(history.history['val_coupling_loss'])
 
 
 if __name__ == "__main__":
-    study = optuna.create_study(direction="minimize")
-    study.optimize(objective, n_trials=1)
+    study = optuna.create_study(directions=["minimize", "minimize", "minimize"])
+    study.optimize(objective, n_trials=3)
 
     print("Number of finished trials: ", len(study.trials))
 
-    print("Best trial:")
-    trial = study.best_trial
+    #print("Best trial:")
+    #trial = study.best_trial
 
-    print("  Value: ", trial.value)
+    #print("  Value: ", trial.value)
 
-    print("  Params: ")
-    for key, value in trial.params.items():
-        print("    {}: {}".format(key, value))
+    #print("  Params: ")
+    #for key, value in trial.params.items():
+    #    print("    {}: {}".format(key, value))
 
     for trial in study.trials:
         print()
         print("  Trial: ", trial.number)
-        for key, value in trial.params.items():
-            print("    {}: {}".format(key, value))
+        print("  Architecture: ", trial.user_attrs["architecture"])
+        print(trial.values)
         
-        print("  Value: ", trial.value)
+        

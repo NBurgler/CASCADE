@@ -318,27 +318,25 @@ def evaluate_model_coupling(dataset, model, path):
 
 
 def evaluate_model_shape_and_coupling(dataset, model, path):
-    num_samples = 63324
+    num_samples = 90464
     output = {"molecule":[], "mol_id":[], "index":[], "target_coupling":[], "predicted_coupling":[],
               "mae":[], "coupling_pred_1":[], "coupling_pred_2":[], "coupling_pred_3":[], "coupling_pred_4":[],
               "coupling_target_1":[], "coupling_target_2":[], "coupling_target_3":[], "coupling_target_4":[],
-              "target_shape":[], "predicted_shape":[], "cce":[], "weighted_cce":[], "shape_pred_1":[], 
-              "shape_pred_2":[], "shape_pred_3":[], "shape_pred_4":[], "shape_target_1":[], "shape_target_2":[], 
-              "shape_target_3":[], "shape_target_4":[]}
+              "target_shape":[], "predicted_shape":[], "converted_shape":[], "cce":[], "weighted_cce":[], 
+              "shape_pred_1":[], "shape_pred_2":[], "shape_pred_3":[], "shape_pred_4":[], "shape_target_1":[], 
+              "shape_target_2":[], "shape_target_3":[], "shape_target_4":[]}
     signature_fn = model.signatures[
         tf.saved_model.DEFAULT_SERVING_SIGNATURE_DEF_KEY]
 
     examples = next(iter(dataset.batch(num_samples)))
     for i in tqdm(range(num_samples)):
-        if i == 10: break
+        if i == 100: break
         example = tf.reshape(examples[i], (1,))
         input_graph = tfgnn.parse_example(graph_spec, example)
         input_dict = {"examples": example}
         output_dict = signature_fn(**input_dict)
         coupling_logits = np.round(output_dict["coupling_constants"], 2)
         shape_logits = output_dict["shape"]
-        print(coupling_logits)
-        print(shape_logits)
         coupling_labels = input_graph.node_sets["_readout"].__getitem__("coupling").to_tensor()[0]
         shape_labels = input_graph.node_sets["_readout"].__getitem__("shape").to_tensor()[0]
         smiles = input_graph.context.__getitem__("smiles")
@@ -353,13 +351,16 @@ def evaluate_model_shape_and_coupling(dataset, model, path):
         for j, predicted_couplings in enumerate(coupling_logits):
             #print(predicted_couplings)
             target_couplings = coupling_labels[j]
+            target_couplings = tf.get_static_value(target_couplings).flatten()
+            predicted_couplings = tf.get_static_value(predicted_couplings).flatten()
+
             output["molecule"].append(smiles)
             output["mol_id"].append(mol_id)
             output["index"].append(tf.get_static_value(index[j]))
             mae = tf.keras.losses.MeanAbsoluteError(reduction="sum")
             output["mae"].append(tf.get_static_value(tf.math.reduce_mean(mae(y_true=target_couplings, y_pred=predicted_couplings))))
-            output["target_coupling"].append(tf.get_static_value(target_couplings))
-            output["predicted_coupling"].append(tf.get_static_value(predicted_couplings))
+            output["target_coupling"].append(target_couplings)
+            output["predicted_coupling"].append(predicted_couplings)
 
             output["coupling_pred_1"].append(tf.get_static_value(predicted_couplings[0]))
             output["coupling_pred_2"].append(tf.get_static_value(predicted_couplings[1]))
@@ -371,8 +372,7 @@ def evaluate_model_shape_and_coupling(dataset, model, path):
             output["coupling_target_3"].append(tf.get_static_value(target_couplings[2]))
             output["coupling_target_4"].append(tf.get_static_value(target_couplings[3]))
 
-            predicted_shape = shape_logits[i]
-            print(predicted_shape)
+            predicted_shape = shape_logits[j]
             converted_labels = convert_shape_one_hot(shape_labels[j])
             converted_predictions = convert_shape_one_hot(predicted_shape)
             target_shape = shape_labels[j]
@@ -381,8 +381,8 @@ def evaluate_model_shape_and_coupling(dataset, model, path):
             output["cce"].append(tf.get_static_value(tf.math.reduce_mean(cce(y_true=target_shape, y_pred=predicted_shape))))
             output["weighted_cce"].append(tf.get_static_value(tf.math.reduce_mean(cce(y_true=target_shape, y_pred=predicted_shape, sample_weight=[1.0,0.4,0.15,0.05]))))
             output["target_shape"].append(tf.get_static_value(converted_labels))
-            output["predicted_shape"].append(tf.get_static_value(converted_predictions))
-            print(converted_predictions)
+            output["predicted_shape"].append(tf.get_static_value(predicted_shape))
+            output["converted_shape"].append(tf.get_static_value(converted_predictions))
 
             output["shape_pred_1"].append(converted_predictions[0])
             output["shape_pred_2"].append(converted_predictions[1])
@@ -396,8 +396,8 @@ def evaluate_model_shape_and_coupling(dataset, model, path):
 
     
     output_df = pd.DataFrame.from_dict(output)
-    print(output_df)
-    total = len(output_df)
+    print(output_df[["molecule", "index", "target_shape", "target_coupling", "predicted_shape", "predicted_coupling", "cce", "mae"]].to_string())
+    total = len(output_df)  
     print("First coupling MAE: " + str(tf.get_static_value(tf.math.reduce_mean(mae(y_true=output["coupling_pred_1"], y_pred=output["coupling_target_1"])))))
     print("Second coupling MAE: " + str(tf.get_static_value(tf.math.reduce_mean(mae(y_true=output["coupling_pred_2"], y_pred=output["coupling_target_2"])))))
     print("Third coupling MAE: " + str(tf.get_static_value(tf.math.reduce_mean(mae(y_true=output["coupling_pred_3"], y_pred=output["coupling_target_3"])))))
@@ -771,7 +771,7 @@ if __name__ == "__main__":
     graph_schema = tfgnn.read_schema(path + "code/predicting_model/GraphSchemaShapeAndCoupling.pbtxt")
     graph_spec = tfgnn.create_graph_spec_from_schema_pb(graph_schema)
     #model = tf.saved_model.load(path + "code/predicting_model/Shift/DFTNN/gnn/models/DFT_model_new")
-    model = tf.saved_model.load(path + "code/predicting_model/Shape_And_Coupling/gnn/models/shape_and_coupling_model_test")
+    model = tf.saved_model.load(path + "code/predicting_model/Shape_And_Coupling/gnn/models/shape_and_coupling_model_0")
     signature_fn = model.signatures[
         tf.saved_model.DEFAULT_SERVING_SIGNATURE_DEF_KEY]
     
