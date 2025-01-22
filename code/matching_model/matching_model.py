@@ -123,8 +123,8 @@ if __name__ == "__main__":
     train_ds = tf.data.TFRecordDataset([train_path], compression_type="GZIP")
     val_ds = tf.data.TFRecordDataset([val_path], compression_type="GZIP")
 
-    train_ds = train_ds.map(parse_example).shuffle(10000).batch(1).prefetch(tf.data.AUTOTUNE)
-    val_ds = val_ds.map(parse_example).shuffle(10000).batch(1).prefetch(tf.data.AUTOTUNE)
+    train_ds = train_ds.map(parse_example).shuffle(10000).batch(32).prefetch(tf.data.AUTOTUNE)
+    val_ds = val_ds.map(parse_example).shuffle(10000).batch(32).prefetch(tf.data.AUTOTUNE)
     
     '''
     print(train_ds)
@@ -136,4 +136,4 @@ if __name__ == "__main__":
     model = _build_model()
     model.compile(loss='binary_crossentropy', optimizer='adam')
     model.summary()
-    model.fit(train_ds, epochs= 100)
+    model.fit(train_ds, epochs= 1000)
