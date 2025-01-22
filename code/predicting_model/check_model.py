@@ -404,7 +404,7 @@ def evaluate_model_shape_and_coupling(dataset, model, path):
     print("Fourth coupling MAE: " + str(tf.get_static_value(tf.math.reduce_mean(mae(y_true=output["coupling_pred_4"], y_pred=output["coupling_target_4"])))))
     print("Mean MAE: " + str(output_df["mae"].mean()))
 
-    print("Correct prediction: " + str(round((len(output_df.loc[output_df["predicted_shape"] == output_df["target_shape"]])/total)*100, 2)) + "%")
+    print("Correct prediction: " + str(round((len(output_df.loc[output_df["converted_shape"] == output_df["target_shape"]])/total)*100, 2)) + "%")
     print("First token correct: " + str(round((len(output_df.loc[output_df["shape_pred_1"] == output_df["shape_target_1"]])/total)*100, 2)) + "%")
     print("Second token correct: " + str(round((len(output_df.loc[output_df["shape_pred_2"] == output_df["shape_target_2"]])/total)*100, 2)) + "%")
     print("Third token correct: " + str(round((len(output_df.loc[output_df["shape_pred_3"] == output_df["shape_target_3"]])/total)*100, 2)) + "%")
