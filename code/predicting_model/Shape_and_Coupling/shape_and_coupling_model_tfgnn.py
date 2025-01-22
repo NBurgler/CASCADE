@@ -231,6 +231,41 @@ def weighted_cce(class_weights):
     
     return loss
 
+def count_invalid_shape(y_true, y_pred):    # A shape is invalid if the any token except the first is "m" or if any token after an "s" is not "s"
+    pred_argmax = tf.math.argmax(y_pred, axis=-1)
+
+    # if another token than the first is "m"
+    m_invalid = tf.reduce_any(pred_argmax[:, 1:] == 0, axis=-1)
+    
+    # if a token following an "s" is not "s"
+    s_invalid_0 = tf.logical_and(pred_argmax[:, 0] == 1, tf.reduce_all(pred_argmax[:, 1:] != 1, axis=-1))
+    s_invalid_1 = tf.logical_and(pred_argmax[:, 1] == 1, tf.reduce_all(pred_argmax[:, 2:] != 1, axis=-1))
+    s_invalid_2 = tf.logical_and(pred_argmax[:, 2] == 1, pred_argmax[:, 3] != 1)
+
+    s_invalid = tf.logical_or(tf.logical_or(s_invalid_0, s_invalid_1),s_invalid_2)
+    
+    invalid_shapes = tf.cast(tf.logical_or(m_invalid, s_invalid), tf.int32)
+
+    return tf.reduce_sum(invalid_shapes)
+
+
+def count_invalid_couplings(y_true, y_pred):    # A coupling is invalid if any value after a 0.0 is non-zero or if a token with an s or m as shape has a value for the coupling constant
+    print("Shape of y_true:", tf.shape(y_true))
+    print("Shape of y_pred:", tf.shape(y_pred))
+    shape_pred = y_pred["shape"]
+    coupling_pred = y_pred["coupling"]
+
+    shape_argmax = tf.math.argmax(shape_pred, axis=-1)
+    token_s_or_m = tf.reshape(tf.where((shape_argmax == 0 | shape_argmax == 1)), [-1])
+
+    invalid_coupling = tf.gather(coupling_pred, token_s_or_m) != 0.0 # s or m shape doesn't have 0.0 output
+
+    return tf.reduce_sum(invalid_coupling)
+
+class DebugCallback(tf.keras.callbacks.Callback):
+    def on_epoch_end(self, epoch, logs=None):
+        print(f"Logs: {logs}")
+
 
 def objective(trial):
     #path = "/home1/s3665828/code/CASCADE/"
@@ -240,7 +275,7 @@ def objective(trial):
     batch_size = 32
     initial_learning_rate = 5E-4
     epochs = 5
-    epoch_divisor = 1
+    epoch_divisor = 100
 
     train_path = path + "data/own_data/Shape_And_Coupling/own_train.tfrecords.gzip"
     val_path = path + "data/own_data/Shape_And_Coupling/own_valid.tfrecords.gzip"
@@ -281,16 +316,17 @@ def objective(trial):
     weighted_cce_loss = weighted_cce([1.0,0.4,0.15,0.05])
 
     loss = {"shape": weighted_cce_loss,
-            "coupling": tf.keras.losses.MeanAbsoluteError()}
-    metrics = {"shape": weighted_cce_loss,
-            "coupling": tf.keras.losses.MeanAbsoluteError()}
+            "coupling": tf.keras.losses.MeanAbsoluteError()} 
+    metrics = {"shape": weighted_cce_loss, "shape": count_invalid_shape,
+            "coupling": tf.keras.losses.MeanAbsoluteError(),
+            "combined_metric": count_invalid_couplings}
 
     model.compile(tf.keras.optimizers.Adam(learning_rate), loss=loss, metrics=metrics)
     model.summary()
 
     code_path = path + "code/predicting_model/Shape_And_Coupling/"
-    filepath = code_path + "gnn/models/shape_and_coupling_model_" + str(trial.number) + "/checkpoint.weights.h5"
-    #filepath = code_path + "gnn/models/shape_and_coupling_model_test/checkpoint.weights.h5"
+    #filepath = code_path + "gnn/models/shape_and_coupling_model_" + str(trial.number) + "/checkpoint.weights.h5"
+    filepath = code_path + "gnn/models/shape_and_coupling_model_test/checkpoint.weights.h5"
     log_dir = code_path + "logs/fit/" + datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
     tensorboard_callback = tf.keras.callbacks.TensorBoard(log_dir=log_dir, histogram_freq=1)
     checkpoint = tf.keras.callbacks.ModelCheckpoint(filepath, save_best_only=True, save_freq="epoch", verbose=1, monitor="val_loss", save_weights_only=True)
@@ -306,8 +342,8 @@ def objective(trial):
     print(serving_logits)
     serving_output = {"shape": serving_logits["shape"], "coupling_constants": serving_logits["coupling"]}
     exported_model = tf.keras.Model(serving_input, serving_output)
-    exported_model.export(code_path + "gnn/models/shape_and_coupling_model_" + str(trial.number))
-    #exported_model.export(code_path + "gnn/models/shape_and_coupling_model_test")
+    #exported_model.export(code_path + "gnn/models/shape_and_coupling_model_" + str(trial.number))
+    exported_model.export(code_path + "gnn/models/shape_and_coupling_model_test")
     
     return min(history.history['val_loss']), min(history.history['val_shape_loss']), min(history.history['val_coupling_loss'])
 
