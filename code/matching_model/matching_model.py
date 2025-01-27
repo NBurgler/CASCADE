@@ -1,34 +1,7 @@
 import pandas as pd
 import tensorflow as tf
 import tensorflow_gnn as tfgnn
-
-def predict_shift(path, input_dict):
-    shift_model = tf.saved_model.load(path + "code/predicting_model/Shift/DFTNN/gnn/models/DFT_model")
-    signature_fn = shift_model.signatures[tf.saved_model.DEFAULT_SERVING_SIGNATURE_DEF_KEY]
-    output_dict = signature_fn(**input_dict)
-    logits = output_dict["shifts"]
-    return logits
-
-def predict_shape(path, input_graph):
-    shape_model = tf.saved_model.load(path + "code/predicting_model/Shape/gnn/models/own_model")
-    signature_fn = shape_model.signatures[tf.saved_model.DEFAULT_SERVING_SIGNATURE_DEF_KEY]
-
-def predict_couplings(path, input_graph):
-    coupling_model = tf.saved_model.load(path + "code/predicting_model/Coupling/gnn/models/own_model")
-    signature_fn = coupling_model.signatures[tf.saved_model.DEFAULT_SERVING_SIGNATURE_DEF_KEY]
-
-def make_predictions(path):
-    graph_schema = tfgnn.read_schema(path + "code/predicting_model/GraphSchema.pbtxt")
-    graph_spec = tfgnn.create_graph_spec_from_schema_pb(graph_schema)
-    dataset = tf.data.TFRecordDataset([path + "data/own_data/Shift/own_train.tfrecords.gzip"], compression_type="GZIP")
-    examples = next(iter(dataset.batch(1)))
-    example = tf.reshape(examples[0], (1,))
-    input_graph = tfgnn.parse_example(graph_spec, example)
-    input_dict = {"examples": example}
-    shifts = predict_shift(path, input_dict)
-    print(input_graph.node_sets["atom"].__getitem__("shift"))
-    print(shifts)
-
+import datetime
 
 def parse_example(serialized_example):
     feature_description = {
@@ -101,7 +74,7 @@ def _build_model():
 
     distance = tf.keras.layers.Lambda(lambda x: tf.norm(x[0] - x[1], axis=-1))([predicted_embedding, observed_embedding])
 
-    distance = tf.keras.layers.Flatten()(distance)
+    distance = tf.keras.layers.Flatten(name="distance")(distance)
 
     output = tf.keras.layers.Dense(1, activation="sigmoid")(distance)
 
@@ -125,15 +98,22 @@ if __name__ == "__main__":
 
     train_ds = train_ds.map(parse_example).shuffle(10000).batch(32).prefetch(tf.data.AUTOTUNE)
     val_ds = val_ds.map(parse_example).shuffle(10000).batch(32).prefetch(tf.data.AUTOTUNE)
-    
-    '''
-    print(train_ds)
-    iterator = iter(train_ds)
-    print(iterator.get_next())
-    input = iterator.get_next()
-    '''
 
-    model = _build_model()
-    model.compile(loss='binary_crossentropy', optimizer='adam')
-    model.summary()
-    model.fit(train_ds, epochs= 1000)
+    full_model = _build_model()
+    full_model.compile(loss='binary_crossentropy', optimizer='adam')
+    full_model.summary()
+
+    code_path = path + "code/matching_model/"
+    filepath = code_path + "gnn/models/matching_model/checkpoint.weights.h5"
+    log_dir = code_path + "logs/fit/" + datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
+    tensorboard_callback = tf.keras.callbacks.TensorBoard(log_dir=log_dir, histogram_freq=1)
+    checkpoint = tf.keras.callbacks.ModelCheckpoint(filepath, save_best_only=True, save_freq="epoch", verbose=1, monitor="val_loss", save_weights_only=True)
+
+    history = full_model.fit(train_ds, epochs=10, validation_data=val_ds, callbacks=[tensorboard_callback, checkpoint])
+
+    full_model.load_weights(filepath)
+
+    distance_model = tf.keras.Model(inputs=full_model.input, outputs=full_model.get_layer('distance').output)
+
+    full_model.save(code_path + "gnn/models/matching_model")
+    distance_model.save(code_path + "gnn/models/distance_model")
