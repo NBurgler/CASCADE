@@ -63,7 +63,11 @@ def predict_shape_and_coupling(path, input_dict):
 
 
 # From a smiles, create the necessarry features and predict shift, shape, and coupling constants. Returns all predicted peaks
-def make_peak_predictions(path, smiles="C#CCC1CCOCO1"):
+def predict_peaks(smiles="C#CCC1CCOCO1"):
+    #path = "/home/s3665828/Documents/Masters_Thesis/repo/CASCADE/"
+    #path = "/home1/s3665828/code/CASCADE/"
+    path = "C:/Users/niels/Documents/repo/CASCADE/" ## TODO: CHANGE PATH TO BE RELATIVE
+
     mol_df, atom_df, bond_df, distance_df = create_graph_tensor.create_dictionary(2, path, type=type, smiles=smiles, name=smiles)
 
     example = create_graph_tensor.create_single_tensor(mol_df, atom_df, bond_df, distance_df)   # Create tensor for shift prediction
@@ -90,7 +94,7 @@ def make_peak_predictions(path, smiles="C#CCC1CCOCO1"):
         predicted_peaks.append(predicted_peak)
 
     atom_idx = shift_df.loc[shift_df["atom_symbol"] == "H"].index.to_numpy()
-    return atom_idx, predicted_peaks
+    return predicted_peaks, atom_idx
 
 
 def serialize_example(predicted, observed, match):
@@ -166,18 +170,15 @@ def minimize_distance(matrix):
     total_cost = sum(matrix[i][j] for i, j in selected)
     return selected, total_cost
 
-def predict_and_match(smiles, observed_peaks):
+def create_distance_matrix(predicted_peaks, observed_peaks):
     #path = "/home/s3665828/Documents/Masters_Thesis/repo/CASCADE/"
     #path = "/home1/s3665828/code/CASCADE/"
     path = "C:/Users/niels/Documents/repo/CASCADE/"
-
+    
+    distance_matrix = np.empty(shape=(len(predicted_peaks), len(observed_peaks)))
 
     model = tf.keras.models.load_model(path + "code/matching_model/gnn/models/distance_model")
     signature_fn = model.signatures[tf.saved_model.DEFAULT_SERVING_SIGNATURE_DEF_KEY]
-
-    atom_indices, predicted_peaks = make_peak_predictions(path, smiles)
-
-    distance_matrix = np.empty(shape=(len(predicted_peaks), len(observed_peaks)))
 
     i = 0
     for pred_peak in predicted_peaks:
@@ -196,9 +197,7 @@ def predict_and_match(smiles, observed_peaks):
             j += 1
         i += 1
 
-    selected, total_cost = minimize_distance(distance_matrix)
-
-    return predicted_peaks, observed_peaks, distance_matrix, selected, total_cost, atom_indices
+    return distance_matrix
 
 if __name__ == '__main__':
     #path = "/home/s3665828/Documents/Masters_Thesis/repo/CASCADE/"
@@ -209,7 +208,7 @@ if __name__ == '__main__':
     model = tf.keras.models.load_model(path + "code/matching_model/gnn/models/distance_model")
     signature_fn = model.signatures[tf.saved_model.DEFAULT_SERVING_SIGNATURE_DEF_KEY]
 
-    atom_indices, predicted_peaks = make_peak_predictions(path, "C#CCC1CCOCO1")
+    predicted_peaks, atom_indices = predict_peaks(path, "C#CCC1CCOCO1")
 
     observed_peaks = []
     num_peaks = int(input("How many peaks do you want to enter? "))

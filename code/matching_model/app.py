@@ -1,8 +1,10 @@
 import streamlit as st
 import numpy as np
 import pandas as pd
-from evaluate_model import predict_and_match
+from evaluate_model import predict_peaks, create_distance_matrix, minimize_distance
 import matplotlib.pyplot as plt
+import matplotlib
+import random
 from rdkit import Chem
 from rdkit.Chem import AllChem
 from rdkit.Chem import Draw
@@ -47,16 +49,22 @@ def convert_coupling_constants(coupling_constants_array):
     return coupling_constants
 
 
-def draw_mol_image(smiles):
+def draw_mol_image(smiles, color_per_idx):
     mol = Chem.MolFromSmiles(smiles)
     mol = Chem.AddHs(mol)
     AllChem.Compute2DCoords(mol)
     d = Draw.rdMolDraw2D.MolDraw2DCairo(500, 500)
     for atom in mol.GetAtoms():
         index = atom.GetIdx()
-        atom.SetProp('atomNote', str(index))
+        if atom.GetSymbol() == "H":
+            atom.SetProp('atomNote', str(index))
+
+    def hex_to_rgb(hex_color):
+        return matplotlib.colors.hex2color(hex_color)
     
-    Draw.rdMolDraw2D.PrepareAndDrawMolecule(d, mol)
+    atom_colors = {int(index): hex_to_rgb(color) for index, color in color_per_idx}
+
+    Draw.rdMolDraw2D.PrepareAndDrawMolecule(d, mol, highlightAtoms=list(atom_colors.keys()), highlightAtomColors=atom_colors)
     d.FinishDrawing()
     png_data = d.GetDrawingText()
 
@@ -66,113 +74,211 @@ def draw_mol_image(smiles):
     ax.axis("off")
     return fig
 
-# Function to highlight specific cells in a DataFrame
-def highlight_cells(dataframe, highlight_coords):
-    def highlight(val, row, col):
-        # Check if the current cell's coordinates are in the highlight list
-        if (row, col) in highlight_coords:
-            return "background-color: yellow; font-weight: bold;"
-        return ""
+def highlight_cells(row, highlight_indices):
+    print(highlight_indices)
+    # Create a list of styles for the row, initially empty
+    styles = ['' for _ in range(len(row))]
+    
+    # Iterate over the columns (skip the first column, which is index 0)
+    for col_index in range(1, len(row)):  # Start from column index 1
+        # Check if the (row index, column index) is in highlight_indices
+        if (row.name, col_index-1) in highlight_indices:
+            styles[col_index] = 'background-color: yellow'  # Highlight the specific cell
+    
+    return styles
 
-    # Apply styles for each cell
-    styled_df = dataframe.style.apply(
-        lambda row: [highlight(val, row.name, col) for col, val in enumerate(row)],
-        axis=1,
-    )
-    return styled_df
+def highlight_row(row):
+    color = row['color']
+    return ['background-color: {}'.format(color)] * len(row)
+
+def assign_random_colors(n):
+    # Generate a list of 'n' unique colors from the 'tab20' colormap
+    cmap = plt.get_cmap("tab20")
+    colors = [cmap(i / n) for i in range(n)]  # Generate 'n' unique colors
+    # Convert RGBA to hex
+    hex_colors = [matplotlib.colors.rgb2hex(color[:3]) for color in colors]
+    return hex_colors
+
+st.set_page_config(layout="wide")
 
 # Title of the app
 st.title("NMR Peak Matching")
 
-st.write("### Please enter the following properties of the observed peaks:")
-st.write("""
-- **Shift**: The chemical shift of the peak
-- **Shape**: The shape/multiplicity of the peak. You can enter a combination of up to 4 of the following tokens (e.g dtd):
-    - m     (multiplet)
-    - s     (singlet)
-    - d     (doublet)
-    - t     (triplet)
-    - q     (quadruplet)
-    - p     (quintet/pentuplet)
-    - h     (sextet)
-    - v     (septet)
-- **Coupling Constants**: Enter the coupling constants in descending order seperated by a comma and a space (e.g. 10.24, 5.42, 3.54). If there are no coupling constants, enter -.
-""")
+col1, col2, col3 = st.columns([1, 1, 2])
 
-if "observed_peaks" not in st.session_state:
-    st.session_state.observed_peaks = []
-
-# Initialize session state to store the table data
-if "observed_peak_table" not in st.session_state:
-    st.session_state.observed_peak_table = []  # Start with an empty list
-
-# Create input boxes for the three properties (on the same line)
-col1, col2, col3 = st.columns(3)
 with col1:
-    shift = st.text_input("Shift", key="shift")
+    st.write("### Please enter the following properties of the observed peaks:")
+    st.write("""
+    - **Shift**: The chemical shift of the peak
+    - **Shape**: The shape/multiplicity of the peak. You can enter a combination of up to 4 of the following tokens (e.g dtd):
+        - m     (multiplet)
+        - s     (singlet)
+        - d     (doublet)
+        - t     (triplet)
+        - q     (quadruplet)
+        - p     (quintet/pentuplet)
+        - h     (sextet)
+        - v     (septet)
+    - **Coupling Constants**: Enter the coupling constants in descending order seperated by a comma and a space (e.g. 10.24, 5.42, 3.54). If there are no coupling constants, enter -.
+    """)
+
+    ##### Observed Peaks #####
+    if "observed_peaks_df" not in st.session_state:
+        st.session_state.observed_peaks_df = pd.DataFrame([{"shift":None, "shape":None, "coupling":None}])
+
+    if "observed_peaks" not in st.session_state:
+        st.session_state.observed_peaks = []
+
+    df = pd.DataFrame([{"shift":None, "shape":None, "coupling":None}])
+    st.write("Observed Peaks:")
+    st.session_state.observed_peaks_df = st.data_editor(df, 
+                                                        num_rows="dynamic",
+                                                        column_order=("shift", "shape", "coupling"),
+                                                        column_config={
+                                                        "shift": "Shift",
+                                                        "shape": "Shape",
+                                                        "coupling": "Coupling Constants"
+                                                        },
+                                                        hide_index=True)
+
+    if not st.session_state.observed_peaks_df.isna().any().any(): 
+        observed_peak_dict = st.session_state.observed_peaks_df.to_dict(orient="records")
+        observed_peaks = []
+        for i, peak in enumerate(observed_peak_dict):
+            shift = float(peak["shift"])
+            shape = peak["shape"]
+            coupling = (";").join(peak["coupling"].split(", "))
+            observed_peaks.append({"shift": shift, "shape": shape, "coupling": coupling})
+
+        st.session_state.observed_peaks = observed_peaks
+
 with col2:
-    shape = st.text_input("Shape", key="shape")
+    ##### Molecule #####
+    if "selected" not in st.session_state:
+        st.session_state.selected = []
+
+    if "colors_in_order" not in st.session_state:
+        st.session_state.colors_in_order = []
+
+    if "atom_idx" not in st.session_state:
+        st.session_state.atom_idx = []
+
+    smiles = st.text_input("Enter a smiles:", value="C#CCC1CCOCO1")
+
+    if "molecule_image" not in st.session_state:
+        st.session_state.molecule_image = None
+
+    if st.session_state.selected != []:
+        colored_df = st.session_state.observed_peaks_df.copy()
+        
+        colored_df["color"] = assign_random_colors(len(colored_df))
+        st.session_state.colors_in_order = colored_df["color"].values
+
+        styled_df = colored_df.style.apply(highlight_row, axis=1)
+
+        color_per_idx = [(st.session_state.atom_idx[pred_idx], st.session_state.colors_in_order[obs_idx]) for (pred_idx, obs_idx) in st.session_state.selected]
+        st.session_state.molecule_image = draw_mol_image(smiles, color_per_idx)
+
+    if st.button("Submit Smiles"):
+        color_per_idx = [(st.session_state.atom_idx[pred_idx], st.session_state.colors_in_order[obs_idx]) for (pred_idx, obs_idx) in st.session_state.selected]
+        st.session_state.molecule_image = draw_mol_image(smiles, color_per_idx)
+
+    if st.session_state.molecule_image:
+        st.write("Molecule:")
+        st.pyplot(st.session_state.molecule_image)
+
+    ##### Matching Table #####
+    if st.session_state.selected != []:
+        st.dataframe(styled_df,
+                     column_order=("shift", "shape", "coupling"),
+                     column_config={
+                        "shift": "Shift",
+                        "shape": "Shape",
+                        "coupling": "Coupling Constants"
+                        },
+                     hide_index=True)
+        
+
+    with st.expander("See Peak Match Table"):
+        if st.session_state.selected != []:
+            st.session_state.atom_idx = np.array([peak[0] for peak in st.session_state.predicted_peak_table])
+            table = []
+            for i in range(len(st.session_state.atom_idx)):
+                match = {}
+                match = st.session_state.observed_peaks[st.session_state.selected[i][1]].copy()
+                match["atom_idx"] = st.session_state.atom_idx[i]
+                table.append(match)
+
+            st.dataframe(table,
+                        column_config={"atom_idx": "Atom Index", 
+                                        "shift": "Shift", 
+                                        "shape": "Shape", 
+                                        "coupling": "Coupling Constants"},
+                        column_order=("atom_idx", "shift", "shape", "coupling"))
+        
+
+
 with col3:
-    coupling = st.text_input("Coupling Constants", key="coupling")
+    ##### Predicted Peaks #####
+    if "predicted_peaks" not in st.session_state:
+        st.session_state.predicted_peaks = None
 
-# Add a submit button
-if st.button("Submit Peak"):
-    observed_peak = {"shift": None, "shape": None, "coupling": None}
-    # Validate inputs (ensure none of the fields are empty)
-    if shift and shape and coupling:
-        # Append the new row to the session state table_data
-        st.session_state.observed_peak_table.append([shift, shape, coupling])
-        observed_peak["shift"] = float(shift)
-        observed_peak["shape"] = shape
-        observed_peak["coupling"] = (";").join(coupling.split(", "))
-        st.session_state.observed_peaks.append(observed_peak)
-        # Clear input fields
-        st.session_state.prop1 = ""
-        st.session_state.prop2 = ""
-        st.session_state.prop3 = ""
-    else:
-        st.warning("Please fill in all three properties before submitting.")
+    if "predicted_peak_table" not in st.session_state:
+        st.session_state.predicted_peak_table = None
 
-# Display the table
-if st.session_state.observed_peak_table:
-    st.write("Peak Table:")
-    df = pd.DataFrame(st.session_state.observed_peak_table, columns=["Shift", "Shape", "Coupling Constants"])
-    st.table(df)
+    if st.button("Predict peaks"):
+        st.session_state.predicted_peak_table = []
+        predicted_peaks, atom_indices = predict_peaks(smiles)
+        st.session_state.predicted_peaks = predicted_peaks
+        for i, peak in enumerate(predicted_peaks):
+            index = atom_indices[i]
+            shift = float(round(peak["shift"], 4))
+            shape = convert_shape_one_hot(peak["shape"])
+            coupling = convert_coupling_constants(peak["coupling"])
+            st.session_state.predicted_peak_table.append([index, shift, shape, coupling])
 
+    if st.session_state.predicted_peak_table:
+        st.write("Predicted Peaks:")
+        predicted_peak_df = pd.DataFrame(st.session_state.predicted_peak_table, columns=["Atom Index", "Shift", "Shape", "Coupling Constants"])
+        st.dataframe(predicted_peak_df,
+                    column_config={"Shift": st.column_config.NumberColumn(format="%.2f")},
+                    hide_index=True)
+        
+    ##### Distance Matrix #####
+    if "distance_matrix" not in st.session_state:
+        st.session_state.distance_matrix = np.empty((0))
 
-# Smiles input
-smiles = st.text_input("Enter a smiles:", value="C#CCC1CCOCO1")
+    if "distance_matrix_df" not in st.session_state:
+        st.session_state.distance_matrix_df = pd.DataFrame()
 
-if "molecule_image" not in st.session_state:
-    st.session_state.molecule_image = None
+    if "total_cost" not in st.session_state:
+        st.session_state.total_cost = None
 
-if st.button("Submit Smiles"):
-    st.session_state.molecule_image = draw_mol_image(smiles)
+    if st.button("Create Distance Matrix"):
+        distance_matrix = create_distance_matrix(st.session_state.predicted_peaks, st.session_state.observed_peaks)
+        st.session_state.distance_matrix = distance_matrix
 
-if st.session_state.molecule_image:
-    st.pyplot(st.session_state.molecule_image)
+        st.session_state.atom_idx = np.array([peak[0] for peak in st.session_state.predicted_peak_table])
+        distance_matrix_with_idx = np.hstack((st.session_state.atom_idx.reshape(-1, 1), distance_matrix))
 
-if "predicted_peak_table" not in st.session_state:
-    st.session_state.predicted_peak_table = []
+        num_peaks = distance_matrix.shape[1]
+        column_names = ["Atom Index"] + [f"Peak {i}" for i in range(1, num_peaks+1)]
 
-if "predicted_peaks" not in st.session_state:
-    st.session_state.predicted_peaks = None
+        st.session_state.distance_matrix_df = pd.DataFrame(distance_matrix_with_idx, columns=column_names)
+        st.session_state.selected = []
 
-if st.button("Predict peaks"):
-    print(st.session_state.observed_peaks)
-    predicted_peaks, observed_peaks, distance_matrix, selected, total_cost, atom_indices = predict_and_match(smiles, st.session_state.observed_peaks)
-    st.session_state.predicted_peaks = predicted_peaks
-    print(st.session_state.predicted_peaks)
-    for peak in predicted_peaks:
-        shift = float(round(peak["shift"], 4))
-        shape = convert_shape_one_hot(peak["shape"])
-        coupling = convert_coupling_constants(peak["coupling"])
-        st.session_state.predicted_peak_table.append([shift, shape, coupling])
+    if st.session_state.distance_matrix.size != 0:
+        st.write("Distance Matrix:")
 
-    st.session_state.distance_matrix = distance_matrix
+    if not st.session_state.distance_matrix_df.empty:
+        df_styled = st.session_state.distance_matrix_df.style.apply(highlight_cells, highlight_indices=st.session_state.selected, axis=1)
+        st.dataframe(df_styled,
+                    column_config={"Atom Index": st.column_config.NumberColumn(format="%d")},
+                    hide_index=True)
 
-if st.session_state.predicted_peak_table:
-    st.write("Predicted Peak Table:")
-    df = pd.DataFrame(st.session_state.predicted_peak_table, columns=["Shift", "Shape", "Coupling Constants"])
-    pd.to_numeric(df["Shift"], downcast='float')
-    st.table(df)
+    if st.session_state.total_cost != None:
+        st.write("Total Distance: " + str(round(st.session_state.total_cost,2)))
+
+    if st.button("Minimize Distance"):
+        st.session_state.selected, st.session_state.total_cost = minimize_distance(st.session_state.distance_matrix)
+        st.rerun()
