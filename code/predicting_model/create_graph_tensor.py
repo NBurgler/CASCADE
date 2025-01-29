@@ -75,7 +75,7 @@ def create_dictionary(key, path, type, save=False, filepath="", name="", smiles=
             for mol in mol_suppl:
                 mol_id = int(mol.GetProp("_Name"))
                 mol.UpdatePropertyCache()
-                mol_entry, atom_entry, bond_entry, distance_entry = fill_dictionary(key, mol_id, mol, shift_data=shift_df)
+                mol_entry, atom_entry, bond_entry, distance_entry, bad_mols = fill_dictionary(key, mol_id, mol, shift_data=shift_df)
                 mol_list.extend(mol_entry)
                 atom_list.extend(atom_entry)
                 bond_list.extend(bond_entry)
@@ -83,7 +83,7 @@ def create_dictionary(key, path, type, save=False, filepath="", name="", smiles=
 
     elif key == 2:  # single molecule
         mol = Chem.MolFromSmiles(smiles)
-        mol_entry, atom_entry, bond_entry, distance_entry = fill_dictionary(key, 0, mol)
+        mol_entry, atom_entry, bond_entry, distance_entry, bad_mols = fill_dictionary(key, 0, mol)
         mol_list.extend(mol_entry)
         atom_list.extend(atom_entry)
         bond_list.extend(bond_entry)
@@ -558,19 +558,15 @@ def create_tensors(path, name, type="Shift"):
             test_data.write(example.SerializeToString())
 
 
-def create_single_tensor(mol_data, atom_data, bond_data, distance_data, type="Shift"):
-    if type == "Shift":
+def create_single_tensor(mol_data, atom_data, bond_data, distance_data, shift_data=None):
+    if shift_data is None:
         if "n_distance" not in mol_data.columns:
             mol_data.insert(5, "n_distance", len(distance_data["distance"]))
         graph_tensor = create_graph_tensor_shift(mol_data, atom_data, bond_data, distance_data)
-    elif type == "Shape":
+    else :
         if "n_distance" not in mol_data.columns:
             mol_data.insert(5, "n_distance", len(distance_data["distance"]))
-        graph_tensor = create_graph_tensor_shape(mol_data, atom_data, bond_data, distance_data)
-    elif type == "Coupling":
-        if "n_distance" not in mol_data.columns:
-            mol_data.insert(5, "n_distance", len(distance_data["distance"]))
-        graph_tensor = create_graph_tensor_coupling(mol_data, atom_data, bond_data, distance_data)
+        graph_tensor = create_graph_tensor_combined(mol_data, atom_data, bond_data, distance_data, shift_data)
 
     example = tfgnn.write_example(graph_tensor)
     return example.SerializeToString()
@@ -586,7 +582,7 @@ def create_graph_tensor_combined(mol_data, atom_data, bond_data, distance_data, 
     shape = one_hot_encode_shape(atom_data["Shape"])
     coupling = convert_coupling_constants(atom_data["Coupling"])
     shift = np.zeros(mol_data["n_atoms"].values)
-    shift[H_indices] = shift_data.loc[shift_data["mol_id"] == mol_data["mol_id"].values[0], "predicted_shift"]
+    shift[H_indices] = shift_data["Shift"].iloc[H_indices]
 
     graph_tensor = tfgnn.GraphTensor.from_pieces(
 
