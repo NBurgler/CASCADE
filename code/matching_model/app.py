@@ -124,33 +124,40 @@ with col1:
 
     ##### Observed Peaks #####
     if "observed_peaks_df" not in st.session_state:
-        st.session_state.observed_peaks_df = pd.DataFrame([{"shift":None, "shape":None, "coupling":None}])
+        st.session_state.observed_peaks_df = pd.DataFrame([{"shift":None, "shape":None, "coupling":None, "amount":None}])
 
     if "observed_peaks" not in st.session_state:
         st.session_state.observed_peaks = []
 
-    df = pd.DataFrame([{"shift":None, "shape":None, "coupling":None}])
+    if "observed_peak_amount" not in st.session_state:
+        st.session_state.observed_peak_amount = []
+
+    df = pd.DataFrame([{"shift":None, "shape":None, "coupling":None, "amount":None}])
     st.write("Observed Peaks:")
     st.session_state.observed_peaks_df = st.data_editor(df, 
                                                         num_rows="dynamic",
-                                                        column_order=("shift", "shape", "coupling"),
+                                                        column_order=("shift", "shape", "coupling", "amount"),
                                                         column_config={
                                                         "shift": "Shift",
                                                         "shape": "Shape",
-                                                        "coupling": "Coupling Constants"
+                                                        "coupling": "Coupling Constants",
+                                                        "amount": "Amount"
                                                         },
                                                         hide_index=True)
 
     if not st.session_state.observed_peaks_df.isna().any().any(): 
         observed_peak_dict = st.session_state.observed_peaks_df.to_dict(orient="records")
         observed_peaks = []
+        observed_peak_amount = []
         for i, peak in enumerate(observed_peak_dict):
             shift = float(peak["shift"])
             shape = peak["shape"]
             coupling = (";").join(peak["coupling"].split(", "))
             observed_peaks.append({"shift": shift, "shape": shape, "coupling": coupling})
+            observed_peak_amount.append(peak["amount"])
 
         st.session_state.observed_peaks = observed_peaks
+        st.session_state.observed_peak_amount = observed_peak_amount
 
 with col2:
     ##### Molecule #####
@@ -182,6 +189,7 @@ with col2:
     if st.button("Submit Smiles"):
         color_per_idx = [(st.session_state.atom_idx[pred_idx], st.session_state.colors_in_order[obs_idx]) for (pred_idx, obs_idx) in st.session_state.selected]
         st.session_state.molecule_image = draw_mol_image(smiles, color_per_idx)
+        st.session_state.selected = []
 
     if st.session_state.molecule_image:
         st.write("Molecule:")
@@ -280,5 +288,5 @@ with col3:
         st.write("Total Distance: " + str(round(st.session_state.total_cost,2)))
 
     if st.button("Minimize Distance"):
-        st.session_state.selected, st.session_state.total_cost = minimize_distance(st.session_state.distance_matrix)
+        st.session_state.selected, st.session_state.total_cost = minimize_distance(st.session_state.distance_matrix, st.session_state.observed_peak_amount)
         st.rerun()

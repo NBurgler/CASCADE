@@ -64,9 +64,9 @@ def predict_shape_and_coupling(path, input_dict):
 
 # From a smiles, create the necessarry features and predict shift, shape, and coupling constants. Returns all predicted peaks
 def predict_peaks(smiles="C#CCC1CCOCO1"):
-    #path = "/home/s3665828/Documents/Masters_Thesis/repo/CASCADE/"
+    path = "/home/s3665828/Documents/Masters_Thesis/repo/CASCADE/"
     #path = "/home1/s3665828/code/CASCADE/"
-    path = "C:/Users/niels/Documents/repo/CASCADE/" ## TODO: CHANGE PATH TO BE RELATIVE
+    #path = "C:/Users/niels/Documents/repo/CASCADE/" ## TODO: CHANGE PATH TO BE RELATIVE
 
     mol_df, atom_df, bond_df, distance_df = create_graph_tensor.create_dictionary(2, path, type=type, smiles=smiles, name=smiles)
 
@@ -144,7 +144,8 @@ def parse_example(serialized_example):
     
     return inputs
 
-def minimize_distance(matrix):
+def minimize_distance(matrix, amount):
+    print(amount)
     m, n = len(matrix), len(matrix[0])  # Rows and Columns
     prob = LpProblem("MinimizeDistance", LpMinimize)
 
@@ -160,7 +161,11 @@ def minimize_distance(matrix):
 
     # Constraint: Each column must have at least one selected value
     for j in range(n):
-        prob += lpSum(x[i][j] for i in range(m)) >= 1
+        print(amount[j])
+        if amount[j] != (None or '-'):
+            prob += lpSum(x[i][j] for i in range(m)) == int(amount[j])
+        else:
+            prob += lpSum(x[i][j] for i in range(m)) >= 1
 
     # Solve the problem
     prob.solve()
@@ -171,9 +176,9 @@ def minimize_distance(matrix):
     return selected, total_cost
 
 def create_distance_matrix(predicted_peaks, observed_peaks):
-    #path = "/home/s3665828/Documents/Masters_Thesis/repo/CASCADE/"
+    path = "/home/s3665828/Documents/Masters_Thesis/repo/CASCADE/"
     #path = "/home1/s3665828/code/CASCADE/"
-    path = "C:/Users/niels/Documents/repo/CASCADE/"
+    #path = "C:/Users/niels/Documents/repo/CASCADE/"
     
     distance_matrix = np.empty(shape=(len(predicted_peaks), len(observed_peaks)))
 

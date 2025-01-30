@@ -87,8 +87,8 @@ def _build_model():
 
 if __name__ == "__main__":
     #path = "/home1/s3665828/code/CASCADE/"
-    #path = "/home/s3665828/Documents/Masters_Thesis/repo/CASCADE/"
-    path = "C:/Users/niels/Documents/repo/CASCADE/"
+    path = "/home/s3665828/Documents/Masters_Thesis/repo/CASCADE/"
+    #path = "C:/Users/niels/Documents/repo/CASCADE/"
 
     train_path = path + "data/own_data/matching_model/own_train.tfrecords.gzip"
     val_path = path + "data/own_data/matching_model/own_valid.tfrecords.gzip"
@@ -96,8 +96,18 @@ if __name__ == "__main__":
     train_ds = tf.data.TFRecordDataset([train_path], compression_type="GZIP")
     val_ds = tf.data.TFRecordDataset([val_path], compression_type="GZIP")
 
-    train_ds = train_ds.map(parse_example).shuffle(10000).batch(32).prefetch(tf.data.AUTOTUNE)
-    val_ds = val_ds.map(parse_example).shuffle(10000).batch(32).prefetch(tf.data.AUTOTUNE)
+    train_size = 63324
+    valid_size = 13569
+    test_size = 13571
+
+    batch_size = 32
+    epoch_divisor = 1
+
+    steps_per_epoch = train_size // batch_size // epoch_divisor
+    validation_steps = valid_size // batch_size // epoch_divisor
+
+    train_ds = train_ds.map(parse_example).shuffle(10000).batch(batch_size).prefetch(tf.data.AUTOTUNE)
+    val_ds = val_ds.map(parse_example).shuffle(10000).batch(batch_size).prefetch(tf.data.AUTOTUNE)
 
     full_model = _build_model()
     full_model.compile(loss='binary_crossentropy', optimizer='adam')
@@ -109,7 +119,7 @@ if __name__ == "__main__":
     tensorboard_callback = tf.keras.callbacks.TensorBoard(log_dir=log_dir, histogram_freq=1)
     checkpoint = tf.keras.callbacks.ModelCheckpoint(filepath, save_best_only=True, save_freq="epoch", verbose=1, monitor="val_loss", save_weights_only=True)
 
-    history = full_model.fit(train_ds, epochs=10, validation_data=val_ds, callbacks=[tensorboard_callback, checkpoint])
+    history = full_model.fit(train_ds, epochs=1000, validation_data=val_ds, callbacks=[tensorboard_callback, checkpoint])
 
     full_model.load_weights(filepath)
 
