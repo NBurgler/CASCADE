@@ -5,6 +5,7 @@ from evaluate_model import predict_peaks, create_distance_matrix, minimize_dista
 import matplotlib.pyplot as plt
 import matplotlib
 import random
+import re
 from rdkit import Chem
 from rdkit.Chem import AllChem
 from rdkit.Chem import Draw
@@ -75,7 +76,6 @@ def draw_mol_image(smiles, color_per_idx):
     return fig
 
 def highlight_cells(row, highlight_indices):
-    print(highlight_indices)
     # Create a list of styles for the row, initially empty
     styles = ['' for _ in range(len(row))]
     
@@ -132,7 +132,56 @@ with col1:
     if "observed_peak_amount" not in st.session_state:
         st.session_state.observed_peak_amount = []
 
-    df = pd.DataFrame([{"shift":None, "shape":None, "coupling":None, "amount":None}])
+    if "observed_peak_text" not in st.session_state:
+        st.session_state.observed_peak_text = ''
+
+    st.write("You can enter the peaks in the publication style format (e.g. 1H NMR (400 MHz, CDCl3) δ 8.32 (d, J = 5.6 Hz, 1H, CHAr), 8.22 (s, 1H, CHAr), etc.)), or you can enter the properties in the table directly.")
+
+    st.session_state.observed_peak_text = st.text_area("Enter the peaks as text")
+
+    #df = pd.DataFrame([{"shift":None, "shape":None, "coupling":None, "amount":None}])
+    df = pd.DataFrame(columns=["shift", "shape", "coupling", "amount"])
+    if st.session_state.observed_peak_text != '':
+        text = st.session_state.observed_peak_text
+        text = text[:-1].split('δ', 1)[-1]  # Remove everything up to the δ
+
+        while text[-1] != ")": # Remove any trailing characters after the last bracket
+            text = text[:-1]
+
+        shifts = re.sub(r'\([^)]*\)', '', text).strip().split(" , ") # Only the shifts are not in brackets
+        shapes = []
+        couplings = []
+        amounts = []
+        
+        text_in_brackets = re.findall(r'\(([^)]*)\)', text) # Extract text inside brackets
+
+        for peak_properties in text_in_brackets:
+            properties = peak_properties.split(', ')
+            shapes.append(properties[0]) # Shape is always first
+            if (shapes[-1] == 'm') or (shapes[-1] == "s"): # Check if there are coupling constants
+                couplings.append('-')
+                amounts.append(properties[1][:-1])
+            else:
+                coupling = ''
+                for i in range(len(shapes[-1])):  # the number of coupling constants matches the number of shapes
+                    coupling += properties[1+i]
+                    if i != len(shapes[-1])-1:
+                        coupling += ", "
+
+                couplings.append(coupling[4:-3])
+                amounts.append(properties[1 + len(shapes[-1])][:-1]) # Remove the H to get the amount
+
+        for i, shift in enumerate(shifts):
+            if "-" in shift:
+                start, end = map(float, re.findall(r'\d+\.\d+', shift)) # Gather both shifts
+                avg = f"{(start + end) / 2:.2f}"  # Format to 2 decimal places
+                shifts[i] = avg
+
+        df["shift"] = shifts
+        df["shape"] = shapes
+        df["coupling"] = couplings
+        df["amount"] = amounts
+
     st.write("Observed Peaks:")
     st.session_state.observed_peaks_df = st.data_editor(df, 
                                                         num_rows="dynamic",
