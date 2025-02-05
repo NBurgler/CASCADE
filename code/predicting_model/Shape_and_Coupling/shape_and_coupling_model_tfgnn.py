@@ -126,7 +126,22 @@ def _build_model(trial, graph_tensor_spec):
     architecture = trial.number
     trial.set_user_attr("architecture", architecture)
 
-    if architecture == 0:   # Same branch
+    if architecture == 0: # Different branches, no interaction
+        graph_output = tfgnn.keras.layers.StructuredReadout("hydrogen")(graph)
+        shape_branch = tf.keras.layers.Dense(128)(graph_output)
+        shape_branch = tf.keras.layers.RepeatVector(4)(shape_branch)
+        shape_branch = tf.keras.layers.GRU(256, return_sequences=True)(shape_branch)
+        shape_branch = tf.keras.layers.GRU(64, return_sequences=True)(shape_branch)
+        shape_branch = tf.keras.layers.GRU(64, return_sequences=True)(shape_branch)
+        shape_branch = tf.keras.layers.Dense(8)(shape_branch)
+        shape_output = tf.keras.layers.Softmax(name="shape")(shape_branch)
+
+        coupling_branch = tf.keras.layers.RepeatVector(4)(graph_output)
+        coupling_branch = tf.keras.layers.GRU(256, return_sequences=True)(coupling_branch)
+        coupling_branch = tf.keras.layers.GRU(128, return_sequences=True)(coupling_branch)
+        coupling_output = tf.keras.layers.Dense(1, activation="relu", name="coupling")(coupling_branch)
+
+    if architecture == 1:   # Same branch
         graph_output = tfgnn.keras.layers.StructuredReadout("hydrogen")(graph)
         graph_output = dense(256, activation="relu")(graph_output)
         graph_output = dense(256, activation="relu")(graph_output)
@@ -140,7 +155,7 @@ def _build_model(trial, graph_tensor_spec):
 
         coupling_output = tf.keras.layers.Dense(1, activation="relu", name="coupling")(graph_output)
 
-    elif architecture == 1: # Same branch, use each others outputs
+    elif architecture == 2: # Same branch, use each others outputs
         graph_output = tfgnn.keras.layers.StructuredReadout("hydrogen")(graph)
         graph_output = dense(256, activation="relu")(graph_output)
         graph_output = dense(256, activation="relu")(graph_output)
@@ -166,7 +181,7 @@ def _build_model(trial, graph_tensor_spec):
         coupling_branch = tf.keras.layers.Dense(32, activation="relu")(coupling_branch)
         coupling_output = tf.keras.layers.Dense(1, activation="relu", name="coupling")(coupling_branch)
 
-    elif architecture == 2: # Same branch, use each others outputs
+    elif architecture == 3: # Same branch, use each others outputs
         graph_output = tfgnn.keras.layers.StructuredReadout("hydrogen")(graph)
         graph_output = dense(256, activation="relu")(graph_output)
         graph_output = dense(256, activation="relu")(graph_output)
@@ -231,41 +246,6 @@ def weighted_cce(class_weights):
     
     return loss
 
-def count_invalid_shape(y_true, y_pred):    # A shape is invalid if the any token except the first is "m" or if any token after an "s" is not "s"
-    pred_argmax = tf.math.argmax(y_pred, axis=-1)
-
-    # if another token than the first is "m"
-    m_invalid = tf.reduce_any(pred_argmax[:, 1:] == 0, axis=-1)
-    
-    # if a token following an "s" is not "s"
-    s_invalid_0 = tf.logical_and(pred_argmax[:, 0] == 1, tf.reduce_all(pred_argmax[:, 1:] != 1, axis=-1))
-    s_invalid_1 = tf.logical_and(pred_argmax[:, 1] == 1, tf.reduce_all(pred_argmax[:, 2:] != 1, axis=-1))
-    s_invalid_2 = tf.logical_and(pred_argmax[:, 2] == 1, pred_argmax[:, 3] != 1)
-
-    s_invalid = tf.logical_or(tf.logical_or(s_invalid_0, s_invalid_1),s_invalid_2)
-    
-    invalid_shapes = tf.cast(tf.logical_or(m_invalid, s_invalid), tf.int32)
-
-    return tf.reduce_sum(invalid_shapes)
-
-
-def count_invalid_couplings(y_true, y_pred):    # A coupling is invalid if any value after a 0.0 is non-zero or if a token with an s or m as shape has a value for the coupling constant
-    print("Shape of y_true:", tf.shape(y_true))
-    print("Shape of y_pred:", tf.shape(y_pred))
-    shape_pred = y_pred["shape"]
-    coupling_pred = y_pred["coupling"]
-
-    shape_argmax = tf.math.argmax(shape_pred, axis=-1)
-    token_s_or_m = tf.reshape(tf.where((shape_argmax == 0 | shape_argmax == 1)), [-1])
-
-    invalid_coupling = tf.gather(coupling_pred, token_s_or_m) != 0.0 # s or m shape doesn't have 0.0 output
-
-    return tf.reduce_sum(invalid_coupling)
-
-class DebugCallback(tf.keras.callbacks.Callback):
-    def on_epoch_end(self, epoch, logs=None):
-        print(f"Logs: {logs}")
-
 
 def objective(trial):
     #path = "/home1/s3665828/code/CASCADE/"
@@ -316,12 +296,11 @@ def objective(trial):
     weighted_cce_loss = weighted_cce([1.0,0.4,0.15,0.05])
 
     loss = {"shape": weighted_cce_loss,
-            "coupling": tf.keras.losses.MeanAbsoluteError()} 
-    metrics = {"shape": weighted_cce_loss, "shape": count_invalid_shape,
-            "coupling": tf.keras.losses.MeanAbsoluteError(),
-            "combined_metric": count_invalid_couplings}
+            "coupling": tf.keras.losses.MeanAbsoluteError()}
+    metrics = {"shape": weighted_cce_loss,
+               "coupling": tf.keras.losses.MeanAbsoluteError()}
 
-    model.compile(tf.keras.optimizers.Adam(learning_rate), loss=loss, metrics=metrics)
+    model.compile(tf.keras.optimizers.Adam(learning_rate), loss=loss, loss_weights=[0.8, 0.2], metrics=metrics)
     model.summary()
 
     code_path = path + "code/predicting_model/Shape_And_Coupling/"
@@ -350,7 +329,7 @@ def objective(trial):
 
 if __name__ == "__main__":
     study = optuna.create_study(directions=["minimize", "minimize", "minimize"])
-    study.optimize(objective, n_trials=3)
+    study.optimize(objective, n_trials=4)
 
     print("Number of finished trials: ", len(study.trials))
 

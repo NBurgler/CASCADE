@@ -317,7 +317,7 @@ def evaluate_model_coupling(dataset, model, path):
     output_df.to_csv(path + "data/own_data/coupling_results.csv.gz", compression='gzip')
 
 
-def evaluate_model_shape_and_coupling(dataset, model, path):
+def evaluate_model_shape_and_coupling(dataset, model, path, num):
     num_samples = 90464
     output = {"molecule":[], "mol_id":[], "index":[], "target_coupling":[], "predicted_coupling":[],
               "mae":[], "coupling_pred_1":[], "coupling_pred_2":[], "coupling_pred_3":[], "coupling_pred_4":[],
@@ -416,7 +416,7 @@ def evaluate_model_shape_and_coupling(dataset, model, path):
     print(output_df["shape_pred_3"].value_counts(normalize=True) * 100)
     print(output_df["shape_pred_4"].value_counts(normalize=True) * 100)
 
-    output_df.to_csv(path + "data/own_data/shape_and_coupling_results.csv.gz", compression='gzip')
+    output_df.to_csv(path + "data/own_data/shape_and_coupling_results" + str(num) + ".csv.gz", compression='gzip')
 
 
 
@@ -756,7 +756,53 @@ def check_graph(dataset):
         input_graph = tfgnn.parse_example(graph_spec, example)
         print(input_graph)
         print(input_graph.node_sets["_readout"].__getitem__("coupling"))
+
         
+def count_invalid_shape(predictions):    # A shape is invalid if the any token except the first is "m" or if any token after an "s" is not "s"
+    invalid_count_0 = 0
+    invalid_count_1 = 0
+    invalid_count_2 = 0
+    for shape in predictions["converted_shape"]:
+        first_s = shape.find('s')
+        if ('m' in shape[1:]): # if another token than the first is m
+            invalid_count_0 += 1
+        elif (first_s != -1) and any(char != 's' for char in shape[first_s:]): # if there's a non-s after an s
+            invalid_count_1 += 1
+        elif (shape[0] == 'm') and any(char != 's' for char in shape[1:]): # if there's a non-s after an m
+            invalid_count_2 += 1
+
+    invalid_count = invalid_count_0 + invalid_count_1 + invalid_count_2
+    print("m in wrong place: " + str(invalid_count_0))
+    print("non-s after s: " + str(invalid_count_1))
+    print("non-s after m: " + str(invalid_count_2))
+    print("Total invalid shapes: " + str(invalid_count))
+    return invalid_count
+
+
+def count_invalid_couplings(predictions):    # A coupling is invalid if any value after a 0.0 is non-zero or if a token with an s or m as shape has a value for the coupling constant
+    invalid_count_0 = 0
+    invalid_count_1 = 0
+    invalid_count_2 = 0
+    for index, prediction in tqdm(predictions.iterrows()):
+        couplings = [prediction["coupling_pred_1"], prediction["coupling_pred_2"], prediction["coupling_pred_3"], prediction["coupling_pred_4"]]
+        shape = prediction["converted_shape"]
+        if (couplings[0] == 0.0) and any(couplings[1:]):  # non-zero coupling after zero coupling
+            invalid_count_0 += 1
+        elif (couplings[1] == 0.0) and any(couplings[2:]):
+            invalid_count_0 += 1
+        elif (couplings[2] == 0.0) and any(couplings[3:]):
+            invalid_count_0 += 1
+        elif ((shape == "msss") or (shape == "ssss")) and (any(couplings)): # if there are coupling constants for an m or s shape
+            invalid_count_1 += 1
+        elif sum(1 for x in couplings if x != 0.0) != sum(1 for s in shape if (s != 'm' and s != 's')): # if the number of coupling constants doesn't align with the number of non-s or non-m shapes
+            invalid_count_2 += 1
+
+    invalid_count = invalid_count_0 + invalid_count_1 + invalid_count_2
+    print("non-zero after 0: " + str(invalid_count_0))
+    print("couplings for m or s: " + str(invalid_count_1))
+    print("different number of couplings and shapes: " + str(invalid_count_2))
+    print("Total invalid couplings: " + str(invalid_count))
+    return invalid_count
 
 
 if __name__ == "__main__":
@@ -764,55 +810,14 @@ if __name__ == "__main__":
     #path = "/home1/s3665828/code/CASCADE/"
     path = "C:/Users/niels/Documents/repo/CASCADE/"
 
-    #results = predict_all(path, ["C#CCC1CCOCO1", "OC12CC1CC(=O)OC2", "CC(O)C1CC(=C)C=C1", "C=C1CC=CO1", "C(C(Cl)Cl)Cl", "CCOC(=O)C"])
-    #visualize_all(path, results)
-
-    #graph_schema = tfgnn.read_schema(path + "code/predicting_model/GraphSchemaMult.pbtxt")
-    graph_schema = tfgnn.read_schema(path + "code/predicting_model/GraphSchemaShapeAndCoupling.pbtxt")
-    graph_spec = tfgnn.create_graph_spec_from_schema_pb(graph_schema)
-    #model = tf.saved_model.load(path + "code/predicting_model/Shift/DFTNN/gnn/models/DFT_model_new")
-    model = tf.saved_model.load(path + "code/predicting_model/Shape_And_Coupling/gnn/models/shape_and_coupling_model_0")
-    signature_fn = model.signatures[
-        tf.saved_model.DEFAULT_SERVING_SIGNATURE_DEF_KEY]
-    
-    #dataset_provider = runner.TFRecordDatasetProvider(filenames=[path + "data/own_data/Coupling/own_train.tfrecords.gzip"])
-    #dataset = dataset_provider.get_dataset(tf.distribute.InputContext())
-    #dataset = tf.data.TFRecordDataset([path + "data/own_data/Shift/all_own_data.tfrecords.gzip"], compression_type="GZIP")
-    dataset = tf.data.TFRecordDataset([path + "data/own_data/Shape_And_Coupling/own_train.tfrecords.gzip"], compression_type="GZIP")
-    #check_graph(dataset)
-
-    #evaluate_model_coupling(dataset, model, path)
-    #evaluate_model_shapes(dataset, model, path)
-
-    #plot_results_hist(pd.read_csv(path + "data/own_data/own_data_results.csv.gz", index_col=0))
-    #plot_shift_errors(pd.read_csv(path + "data/own_data/own_shift_results.csv.gz", index_col=0))
-
-    #evaluate_model_shifts(dataset, model, path)
-    #evaluate_model(dataset, model)
-    #evaluate_sample(dataset, model, 2)
-    evaluate_model_shape_and_coupling(dataset, model, path)
-    #plot_shift_errors(path)
-
-    #visualize_shifts(path, evaluate_molecule(model, "C#CCC1CCOCO1"))
-    #data = pd.read_csv(path + "data/own_data/own_shift_results.csv.gz", index_col=0)
-    #data = data.sort_values(by="mae", ascending=False)
-    #visualize_errors(path, data, dft=False)
-    '''
-    mean_mae_list = {"mol_id":[], "mean_mae":[]}
-    for mol_id in tqdm(data["mol_id"].unique()):
-        atom_data = data.loc[data["mol_id"] == mol_id]
-        mean_mae = str(round(atom_data["mae"].mean(), 2))
-        mean_mae_list["mol_id"].append(mol_id)
-        mean_mae_list["mean_mae"].append(mean_mae)
-
-    mean_mae_df = pd.DataFrame(mean_mae_list)
-
-    print(mean_mae_df)
-    print(data)
-    data = pd.merge(data, mean_mae_df, on="mol_id", how="left")
-
-    print(data)
-    data = data.sort_values(by="mean_mae", ascending=False)
-    print(data)
-    visualize_errors(path, data, dft=False)
-    '''
+    print("Model 0:")
+    count_invalid_shape(pd.read_csv(path + "data/own_data/shape_and_coupling_results0.csv.gz"))
+    count_invalid_couplings(pd.read_csv(path + "data/own_data/shape_and_coupling_results0.csv.gz"))
+    print("_______________________")
+    print("Model 1:")
+    count_invalid_shape(pd.read_csv(path + "data/own_data/shape_and_coupling_results1.csv.gz"))
+    count_invalid_couplings(pd.read_csv(path + "data/own_data/shape_and_coupling_results1.csv.gz"))
+    print("_______________________")
+    print("Model 2:")
+    count_invalid_shape(pd.read_csv(path + "data/own_data/shape_and_coupling_results2.csv.gz"))
+    count_invalid_couplings(pd.read_csv(path + "data/own_data/shape_and_coupling_results2.csv.gz"))
