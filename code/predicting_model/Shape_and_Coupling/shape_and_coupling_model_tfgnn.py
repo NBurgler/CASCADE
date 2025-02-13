@@ -104,6 +104,14 @@ def readout_layers():
         dense(256, activation="relu"),
         dense(256, activation="relu")])
 
+class ArgmaxLayer(tf.keras.layers.Layer):
+    def call(self, inputs):
+        return tf.expand_dims(tf.argmax(inputs, axis=-1, output_type=tf.int32), axis=-1)
+    
+class MaskLayer(tf.keras.layers.Layer):
+    def call(self, inputs):
+        return tf.cast(tf.where((inputs == 0) | (inputs == 1), 0, 1), tf.float32)
+
 
 def _build_model(trial, graph_tensor_spec):
     input_graph = tf.keras.layers.Input(type_spec=graph_tensor_spec)
@@ -140,9 +148,9 @@ def _build_model(trial, graph_tensor_spec):
         coupling_branch = tf.keras.layers.RepeatVector(4)(coupling_branch)
         coupling_branch = tf.keras.layers.GRU(256, return_sequences=True)(coupling_branch)
         coupling_branch = tf.keras.layers.GRU(128, return_sequences=True)(coupling_branch)
-        coupling_output = tf.keras.layers.Dense(1, activation="relu", name="coupling")(coupling_branch)
+        coupling_output = tf.keras.layers.Dense(1, activation="relu", name="coupling_output")(coupling_branch)
 
-    if architecture == 1: # Separate branch, Separate output
+    if architecture == 1: # Separate branch, Combined output
         graph_output = tfgnn.keras.layers.StructuredReadout("hydrogen")(graph)
         shape_branch = tf.keras.layers.Dense(128)(graph_output)
         shape_branch = tf.keras.layers.RepeatVector(4)(shape_branch)
@@ -166,7 +174,7 @@ def _build_model(trial, graph_tensor_spec):
 
         coupling_branch = tf.keras.layers.Dense(64, activation="relu")(combined_branch_output)
         coupling_branch = tf.keras.layers.Dense(32, activation="relu")(coupling_branch)
-        coupling_output = tf.keras.layers.Dense(1, activation="relu", name="coupling")(coupling_branch)
+        coupling_output = tf.keras.layers.Dense(1, activation="relu", name="coupling_output")(coupling_branch)
 
     if architecture == 2:   # Combined branch, Separate output
         graph_output = tfgnn.keras.layers.StructuredReadout("hydrogen")(graph)
@@ -180,7 +188,7 @@ def _build_model(trial, graph_tensor_spec):
 
         shape_output = tf.keras.layers.Dense(8, activation="softmax", name="shape")(graph_output)
 
-        coupling_output = tf.keras.layers.Dense(1, activation="relu", name="coupling")(graph_output)
+        coupling_output = tf.keras.layers.Dense(1, activation="relu", name="coupling_output")(graph_output)
 
     elif architecture == 3: # Combined branch, Combined output
         graph_output = tfgnn.keras.layers.StructuredReadout("hydrogen")(graph)
@@ -204,11 +212,14 @@ def _build_model(trial, graph_tensor_spec):
 
         coupling_branch = tf.keras.layers.Dense(64, activation="relu")(combined_branch_output)
         coupling_branch = tf.keras.layers.Dense(32, activation="relu")(coupling_branch)
-        coupling_output = tf.keras.layers.Dense(1, activation="relu", name="coupling")(coupling_branch)
+        coupling_output = tf.keras.layers.Dense(1, activation="relu", name="coupling_output")(coupling_branch)
 
+        
+    shape_decoded = ArgmaxLayer(name="ArgmaxLayer")(shape_output)
+    mask = MaskLayer(name="MaskLayer")(shape_decoded)
+    coupling_output = tf.keras.layers.Multiply(name="coupling")([coupling_output, mask])
     combined_output = tf.keras.layers.concatenate([shape_output, coupling_output], name="combined") # This is just for some extra loss functions/metrics
     return tf.keras.Model(inputs=[input_graph], outputs={"shape": shape_output, "coupling": coupling_output, "combined": combined_output})
-    #return tf.keras.Model(inputs=[input_graph], outputs=[shape_output, coupling_output])
 
 
 def add_sample_weights(input_data, target_data):
@@ -254,13 +265,25 @@ def mask_loss():
 
         shape_decoded = tf.argmax(shape_pred, axis=-1)
 
-        mask = tf.cast(tf.logical_not(tf.reduce_any(  # Find all shapes that are m or s, those should get a 0 in the mask
+        shape_s_or_m = tf.cast(tf.reduce_any(  # Find all shapes that are m or s, those should get a 0 in the mask
             [tf.equal(shape_decoded, 0), tf.equal(shape_decoded, 1)], axis=0
-        )), tf.float32)
+        ), tf.float32)
 
-        mask = tf.expand_dims(mask, axis=-1)    # make sure mask dimensions align with coupling dimensions
+        coupling_zero = tf.cast(tf.equal(coupling_pred, 0.0), tf.float32)
+        coupling_zero = tf.squeeze(coupling_zero)
 
-        constraint_loss = tf.reduce_sum((1 - mask) * coupling_pred)
+        #shape_s_or_m = tf.expand_dims(shape_s_or_m, axis=-1)    # make sure mask dimensions align with coupling dimensions
+
+        incompatible_outputs = tf.cast(tf.reduce_any(tf.not_equal(coupling_zero, shape_s_or_m), axis=1), tf.int32)
+        constraint_loss = tf.cast(tf.reduce_sum(incompatible_outputs), tf.float64)
+
+        '''if constraint_loss > 0:
+            tf.print("###################")
+            tf.print(shape_decoded)
+            tf.print(coupling_pred)
+            tf.print(incompatible_outputs)
+            tf.print(constraint_loss)
+            tf.print("###################")'''
 
         return constraint_loss
     return loss
@@ -329,7 +352,7 @@ def objective(trial):
     batch_size = 32
     initial_learning_rate = 5E-4
     epochs = 5
-    epoch_divisor = 1
+    epoch_divisor = 100
 
     train_path = path + "data/own_data/Shape_And_Coupling/own_train.tfrecords.gzip"
     val_path = path + "data/own_data/Shape_And_Coupling/own_valid.tfrecords.gzip"
@@ -372,9 +395,8 @@ def objective(trial):
 
     model.compile(tf.keras.optimizers.Adam(learning_rate),
                   loss={"shape": weighted_cce_loss, 
-                        "coupling": tf.keras.losses.MeanAbsoluteError(),
-                        "combined": mask_loss()},
-                  loss_weights=[4.0, 1.0, 0.1],
+                        "coupling": tf.keras.losses.MeanAbsoluteError()},
+                  loss_weights=[10, 10, 0.00],
                   metrics={"shape": count_invalid_shapes,
                            "combined": [mask_loss(), count_invalid_couplings]})
     model.summary()
