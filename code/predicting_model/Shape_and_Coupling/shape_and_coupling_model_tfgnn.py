@@ -103,14 +103,20 @@ def readout_layers():
     return tf.keras.Sequential([
         dense(256, activation="relu"),
         dense(256, activation="relu")])
-
-class ArgmaxLayer(tf.keras.layers.Layer):
-    def call(self, inputs):
-        return tf.expand_dims(tf.argmax(inputs, axis=-1, output_type=tf.int32), axis=-1)
     
-class MaskLayer(tf.keras.layers.Layer):
-    def call(self, inputs):
-        return tf.cast(tf.where((inputs == 0) | (inputs == 1), 0, 1), tf.float32)
+def mask_couplings(inputs):
+    shapes, couplings = inputs
+    shapes_decoded = tf.argmax(tf.stop_gradient(shapes), axis=-1)
+
+    # mask is 0 when shape is s or m (argmax == (0 V 1))
+    mask = tf.cast(tf.logical_not(tf.reduce_any(tf.stack([shapes_decoded == 0, shapes_decoded == 1]), axis=0)), tf.float32)
+
+    mask = tf.expand_dims(mask, axis=-1)
+
+    masked_couplings = couplings * mask
+
+    return masked_couplings
+
 
 
 def _build_model(trial, graph_tensor_spec):
@@ -215,11 +221,10 @@ def _build_model(trial, graph_tensor_spec):
         coupling_output = tf.keras.layers.Dense(1, activation="relu", name="coupling_output")(coupling_branch)
 
         
-    shape_decoded = ArgmaxLayer(name="ArgmaxLayer")(shape_output)
-    mask = MaskLayer(name="MaskLayer")(shape_decoded)
-    coupling_output = tf.keras.layers.Multiply(name="coupling")([coupling_output, mask])
-    combined_output = tf.keras.layers.concatenate([shape_output, coupling_output], name="combined") # This is just for some extra loss functions/metrics
-    return tf.keras.Model(inputs=[input_graph], outputs={"shape": shape_output, "coupling": coupling_output, "combined": combined_output})
+    masked_couplings = tf.keras.layers.Lambda(mask_couplings, name="coupling")([shape_output, coupling_output])
+    #masked_couplings = coupling_output
+    combined_output = tf.keras.layers.concatenate([shape_output, masked_couplings], name="combined") # This is just for some extra loss functions/metrics
+    return tf.keras.Model(inputs=[input_graph], outputs={"shape": shape_output, "coupling": masked_couplings, "combined": combined_output})
 
 
 def add_sample_weights(input_data, target_data):
@@ -312,7 +317,7 @@ def count_invalid_shapes(y_true, y_pred):    # A shape is invalid if the any tok
     return invalid_count
 
 
-def count_invalid_couplings(y_true, y_pred):    # A coupling is invalid if any value after a 0.0 is non-zero or if a token with an s or m as shape has a value for the coupling constant
+def count_invalid_couplings(y_true, y_pred):    # A coupling is invalid if a token with an s or m as shape has a value for the coupling constant
     invalid_count = 0
     shape_pred, coupling_pred = tf.split(y_pred, [8, 1], axis=-1)
 
@@ -320,23 +325,19 @@ def count_invalid_couplings(y_true, y_pred):    # A coupling is invalid if any v
     for coupling in coupling_pred:
         coupling = tf.squeeze(coupling, axis=-1)
         i = 0
-        invalid_coupling_0 = False
-        invalid_coupling_1 = False
+        invalid_coupling = False
         zero_indices = tf.where(tf.equal(coupling, 0.0))
-        if tf.size(zero_indices) > 0:
-            first_zero = tf.reduce_min(zero_indices)
-            invalid_coupling_0 = tf.reduce_any(tf.not_equal(coupling[first_zero + 1:], 0.0))  # Any coupling constant after a zero is non-zero
+        zero_indices = tf.squeeze(zero_indices, axis=-1)
 
         shape_m_or_s = tf.where(tf.logical_or(tf.equal(shape_decoded[i], 0), tf.equal(shape_decoded[i], 1)))
-        zero_indices = tf.squeeze(zero_indices, axis=-1)
         shape_m_or_s = tf.squeeze(shape_m_or_s, axis=-1)
 
         if tf.equal(tf.shape(shape_m_or_s), tf.shape(zero_indices)):
-            invalid_coupling_1 = tf.reduce_any(tf.not_equal(shape_m_or_s, zero_indices))   # Check if zero values are (only) given for m or s shapes
+            invalid_coupling = tf.reduce_any(tf.not_equal(shape_m_or_s, zero_indices))   # Check if zero values are (only) given for m or s shapes
         else:
-            invalid_coupling_1 = True   # If there is a different number of zero's and m/s, it's always invalid
+            invalid_coupling = True   # If there is a different number of zero's and m/s, it's always invalid
             
-        if tf.reduce_any([invalid_coupling_0, invalid_coupling_1]):  # if any one is invalid, the invalid count goes up
+        if invalid_coupling:
             invalid_count += 1
         
         i += 1
@@ -351,8 +352,8 @@ def objective(trial):
 
     batch_size = 32
     initial_learning_rate = 5E-4
-    epochs = 5
-    epoch_divisor = 100
+    epochs = 100
+    epoch_divisor = 1
 
     train_path = path + "data/own_data/Shape_And_Coupling/own_train.tfrecords.gzip"
     val_path = path + "data/own_data/Shape_And_Coupling/own_valid.tfrecords.gzip"
@@ -395,15 +396,18 @@ def objective(trial):
 
     model.compile(tf.keras.optimizers.Adam(learning_rate),
                   loss={"shape": weighted_cce_loss, 
-                        "coupling": tf.keras.losses.MeanAbsoluteError()},
-                  loss_weights=[10, 10, 0.00],
+                        "coupling": tf.keras.losses.MeanAbsoluteError(),
+                        "combined": mask_loss()},
+                  loss_weights={"shape": 4.0, 
+                                "coupling": 1.0, 
+                                "combined": 0.0},
                   metrics={"shape": count_invalid_shapes,
                            "combined": [mask_loss(), count_invalid_couplings]})
     model.summary()
 
     code_path = path + "code/predicting_model/Shape_And_Coupling/"
-    #filepath = code_path + "gnn/models/shape_and_coupling_model_" + str(trial.number) + "/checkpoint.weights.h5"
-    filepath = code_path + "gnn/models/shape_and_coupling_model_test/checkpoint.weights.h5"
+    filepath = code_path + "gnn/models/shape_and_coupling_model_" + str(trial.number) + "/checkpoint.weights.h5"
+    #filepath = code_path + "gnn/models/shape_and_coupling_model_test/checkpoint.weights.h5"
     log_dir = code_path + "logs/fit/" + datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
     tensorboard_callback = tf.keras.callbacks.TensorBoard(log_dir=log_dir, histogram_freq=1)
     checkpoint = tf.keras.callbacks.ModelCheckpoint(filepath, save_best_only=True, save_freq="epoch", verbose=1, monitor="val_loss", save_weights_only=True)
@@ -418,8 +422,8 @@ def objective(trial):
     serving_logits = model(serving_model_input)
     serving_output = {"shape": serving_logits["shape"], "coupling_constants": serving_logits["coupling"]}
     exported_model = tf.keras.Model(serving_input, serving_output)
-    #exported_model.export(code_path + "gnn/models/shape_and_coupling_model_" + str(trial.number))
-    exported_model.export(code_path + "gnn/models/shape_and_coupling_model_test")
+    exported_model.export(code_path + "gnn/models/shape_and_coupling_model_" + str(trial.number))
+    #exported_model.export(code_path + "gnn/models/shape_and_coupling_model_test")
     
     return min(history.history['val_loss']), min(history.history['val_shape_loss']), min(history.history['val_coupling_loss']), min(history.history['val_combined_loss']), min(history.history['val_shape_count_invalid_shapes']), min(history.history['val_combined_count_invalid_couplings'])
 
