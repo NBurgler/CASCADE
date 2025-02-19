@@ -1,0 +1,239 @@
+node_sets {
+    key: "atom"
+    value { 
+        description: "An atom."
+
+        features: {
+            key: "_atom_idx"
+            value: {
+                description: "The atom index."
+                dtype: DT_INT64
+                shape: { dim { size: 1 } }
+            }
+        }
+    
+        features: {
+            key: "atom_sym"
+            value: {
+                description: "The atom symbol encoded as a one-hot."
+                dtype: DT_FLOAT
+                shape: { dim { size: 7 } }
+            }
+        }
+
+        features: {
+            key: "chiral_tag"
+            value: {
+                description: "The atom's chiral tag, a one-hot with 9 possible values."
+                dtype: DT_FLOAT
+                shape: { dim { size: 9 } }
+            }
+        }
+        
+        features: {
+            key: "formal_charge"
+            value: {
+                description: "The atom's formal charge, an integer value."
+                dtype: DT_INT64
+                shape: { dim { size: 1 } }
+            }
+        }
+
+        features: {
+            key: "hybridization"
+            value: {
+                description: "The atom's hybridization type, a one-hot with 9 possible values."
+                dtype: DT_FLOAT
+                shape: { dim { size: 9 } }
+            }
+        }
+
+        features: {
+            key: "is_aromatic"
+            value: {
+                description: "0 if the atom is not aromatic, 1 if it is."
+                dtype: DT_INT64
+                shape: { dim { size: 1 } }
+            }
+        }
+
+        features: {
+            key: "no_implicit"
+            value: {
+                description: "0 if the atom is allowed to have implicit atoms, 1 if it isn't"
+                dtype: DT_INT64
+                shape: { dim { size: 1 } }
+            }
+        }
+
+        features: {
+            key: "num_radical_electrons"
+            value: {
+                description: "The number of radical atoms."
+                dtype: DT_INT64
+                shape: { dim { size: 1 } }
+            }
+        }
+
+        features: {
+            key: "degree"
+            value: {
+                description: "The degree of the atom including H-atoms."
+                dtype: DT_INT64
+                shape: { dim { size: 1 } }
+            }
+        }
+
+        features: {
+            key: "num_Hs"
+            value: {
+                description: "The total number of hydrogen atoms on the atom."
+                dtype: DT_INT64
+                shape: { dim { size: 1 } }
+            }
+        }
+
+        features: {
+            key: "valence"
+            value: {
+                description: "The total (implicit and explicit) valence of the atom."
+                dtype: DT_INT64
+                shape: { dim { size: 1 } }
+            }
+        }
+    }
+}
+
+node_sets {
+    key: "_readout"
+    value {
+        description: "the readout nodes."
+
+        features: {
+            key:"shift"
+            value: {
+            description: "The chemical shift of the atom."
+            dtype: DT_FLOAT
+            shape: { dim { size: 1 } }
+            }
+        }   
+
+        features: {
+            key:"shape"
+            value: {
+            description: "The shape of the peak corresponding to the atom as a one-hot."
+            dtype: DT_FLOAT
+            shape: { dim { size: 4 } dim { size: 8 }}
+            }
+        }
+
+        features: {
+            key:"coupling"
+            value: {
+            description: "The coupling constants of the peak."
+            dtype: DT_FLOAT
+            shape: { dim { size: 4 } }
+            }
+        }
+    }       
+}
+
+edge_sets {
+    key: "bond"
+    value {
+        description: "An atom bond."
+        source: "atom"
+        target: "atom"
+
+        features: {
+            key: "bond_type"
+            value: {
+                description: "The type of bond (single, double, etc.) as a one-hot."
+                dtype: DT_FLOAT
+                shape: { dim { size: 22 } }
+            }
+        }
+        features: {
+            key: "distance"
+            value: {
+                description: "The interatomic distance."
+                dtype: DT_FLOAT
+                shape: { dim { size: 1 } }
+            }
+        }
+
+        features: {
+            key: "is_conjugated"
+            value: {
+                description: "0 if the bond is not conjugated, 1 if it is."
+                dtype: DT_INT64
+                shape: { dim { size: 1 } }
+            }
+        }
+
+        features: {
+            key: "stereo"
+            value: {
+                description: "The stereo configuration of the bond as a one-hot."
+                dtype: DT_FLOAT
+                shape: { dim { size: 8 } }
+            }
+        }
+
+        features: {
+            key: "normalized_distance"
+            value: {
+                description: "The normalized interatomic distance."
+                dtype: DT_FLOAT
+                shape: { dim { size: 1 } }
+            }
+        }
+    }
+}
+
+edge_sets {
+    key: "interatomic_distance"
+
+    value {
+        description: "The distance between any two atoms."
+        source: "atom"
+        target: "atom"
+
+        features: {
+            key: "distance"
+            value: {
+                description: "The interatomic distance."
+                dtype: DT_FLOAT
+            }
+        }
+    }
+}
+
+edge_sets {
+    key: "_readout/hydrogen"
+    value {
+        description: "Edges marking the hydrogen atoms for coupling constant prediction"
+        source: "atom"
+        target: "_readout"
+    }
+}
+
+context {
+    features {
+        key: "smiles"
+        value: {
+            description: "The smiles of the molecule."
+            dtype: DT_STRING
+            shape: { dim { size: 1 } }
+        }
+    }
+
+    features {
+        key: "_mol_id"
+        value: {
+            description: "The id of the molecule."
+            dtype: DT_INT64
+            shape: { dim { size: 1 } }
+        }
+    }
+}

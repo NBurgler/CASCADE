@@ -318,6 +318,8 @@ def evaluate_model_coupling(dataset, model, path):
 
 
 def evaluate_model_shape_and_coupling(dataset, model, path, num):
+    graph_schema = tfgnn.read_schema(path + "code/predicting_model/GraphSchemaShapeAndCoupling.pbtxt")
+    graph_spec = tfgnn.create_graph_spec_from_schema_pb(graph_schema)
     num_samples = 90464
     output = {"molecule":[], "mol_id":[], "index":[], "target_coupling":[], "predicted_coupling":[],
               "mae":[], "coupling_pred_1":[], "coupling_pred_2":[], "coupling_pred_3":[], "coupling_pred_4":[],
@@ -330,7 +332,7 @@ def evaluate_model_shape_and_coupling(dataset, model, path, num):
 
     examples = next(iter(dataset.batch(num_samples)))
     for i in tqdm(range(num_samples)):
-        if i == 100: break
+        if i == 10: break
         example = tf.reshape(examples[i], (1,))
         input_graph = tfgnn.parse_example(graph_spec, example)
         input_dict = {"examples": example}
@@ -396,7 +398,7 @@ def evaluate_model_shape_and_coupling(dataset, model, path, num):
 
     
     output_df = pd.DataFrame.from_dict(output)
-    print(output_df[["molecule", "index", "target_shape", "target_coupling", "predicted_shape", "predicted_coupling", "cce", "mae"]].to_string())
+    print(output_df[["molecule", "index", "target_shape", "target_coupling", "converted_shape", "predicted_coupling", "cce", "mae"]])
     total = len(output_df)  
     print("First coupling MAE: " + str(tf.get_static_value(tf.math.reduce_mean(mae(y_true=output["coupling_pred_1"], y_pred=output["coupling_target_1"])))))
     print("Second coupling MAE: " + str(tf.get_static_value(tf.math.reduce_mean(mae(y_true=output["coupling_pred_2"], y_pred=output["coupling_target_2"])))))
@@ -411,6 +413,11 @@ def evaluate_model_shape_and_coupling(dataset, model, path, num):
     print("Fourth token correct: " + str(round((len(output_df.loc[output_df["shape_pred_4"] == output_df["shape_target_4"]])/total)*100, 2)) + "%")
     print("Mean CCE: " + str(round(output_df["cce"].mean(),2)))
     print("Mean Weighted CCE: " + str(round(output_df["weighted_cce"].mean(),2)))
+    predicted_m = output_df.index[output_df["converted_shape"] == "msss"].to_list()
+    label_m = output_df.index[output_df["target_shape"] == "msss"].to_list()
+    valid_m = len(set(predicted_m) & set(label_m))
+    print("Predicted m instead of shape: " + str(round(((len(predicted_m) - valid_m)/total)*100, 2)) + "%")
+    print("Predicted shape instead of m: " + str(round(((len(label_m) - valid_m)/total)*100, 2)) + "%")
     print(output_df["shape_pred_1"].value_counts(normalize=True) * 100)
     print(output_df["shape_pred_2"].value_counts(normalize=True) * 100)
     print(output_df["shape_pred_3"].value_counts(normalize=True) * 100)
@@ -810,7 +817,15 @@ if __name__ == "__main__":
     #path = "/home1/s3665828/code/CASCADE/"
     path = "C:/Users/niels/Documents/repo/CASCADE/"
 
-    print("Model 0:")
+    data = tf.data.TFRecordDataset([path + "data/own_data/Shape_And_Coupling/own_train.tfrecords.gzip"], compression_type="GZIP")
+    model_0 = tf.saved_model.load(path + "code/predicting_model/Shape_And_Coupling/gnn/models/new/shape_and_coupling_model_0")
+    evaluate_model_shape_and_coupling(data, model_0, path, 0)
+
+    model_1 = tf.saved_model.load(path + "code/predicting_model/Shape_And_Coupling/gnn/models/new/shape_and_coupling_model_1")
+    evaluate_model_shape_and_coupling(data, model_1, path, 1)
+
+
+    '''print("Model 0:")
     count_invalid_shape(pd.read_csv(path + "data/own_data/shape_and_coupling_results0.csv.gz"))
     count_invalid_couplings(pd.read_csv(path + "data/own_data/shape_and_coupling_results0.csv.gz"))
     print("_______________________")
@@ -820,4 +835,4 @@ if __name__ == "__main__":
     print("_______________________")
     print("Model 2:")
     count_invalid_shape(pd.read_csv(path + "data/own_data/shape_and_coupling_results2.csv.gz"))
-    count_invalid_couplings(pd.read_csv(path + "data/own_data/shape_and_coupling_results2.csv.gz"))
+    count_invalid_couplings(pd.read_csv(path + "data/own_data/shape_and_coupling_results2.csv.gz"))'''
