@@ -172,7 +172,7 @@ with col1:
                 amounts.append(properties[1 + len(shapes[-1])][:-1]) # Remove the H to get the amount
 
         for i, shift in enumerate(shifts):
-            if "-" in shift:
+            if "-" in shift or "–" in shift:
                 start, end = map(float, re.findall(r'\d+\.\d+', shift)) # Gather both shifts
                 avg = f"{(start + end) / 2:.2f}"  # Format to 2 decimal places
                 shifts[i] = avg
