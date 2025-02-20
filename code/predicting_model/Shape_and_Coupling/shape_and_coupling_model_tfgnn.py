@@ -450,7 +450,7 @@ if __name__ == "__main__":
         print()
         print("  Trial: ", trial.number)
         print("  Architecture: ", trial.user_attrs["architecture"])
-        print("     Mean Loss: ", trial.values[0])
+        print("     Validation Loss: ", trial.values[0])
         print("     Shape Loss: ", trial.values[1])
         print("     Coupling Loss: ", trial.values[2])
         print("     Mask Loss: ", trial.values[3])
