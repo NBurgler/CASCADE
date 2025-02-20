@@ -97,7 +97,7 @@ def readout_layers():
         dense(256, activation="relu"),
         dense(256, activation="relu"),
         dense(128, activation="relu"),
-        tf.keras.layers.Dense(1)])
+        tf.keras.layers.Dense(1, activation="relu")], name="shift")
 
 def mask_couplings(inputs):
     shapes, couplings = inputs
@@ -192,7 +192,9 @@ def _build_model(graph_tensor_spec):
     coupling_output = tf.keras.layers.Dense(1, activation="relu", name="coupling_output")(coupling_branch)
     coupling_output = tf.keras.layers.Lambda(mask_couplings, name="coupling")([shape_output, coupling_output])
 
-    return tf.keras.Model(inputs=[input_graph], outputs={"shift": shift_output, "shape": shape_output, "coupling": coupling_output})
+    combined_output = tf.keras.layers.concatenate([shape_output, coupling_output], name="combined")
+
+    return tf.keras.Model(inputs=[input_graph], outputs={"shift": shift_output, "shape": shape_output, "coupling": coupling_output, "combined": combined_output})
 
 
 class PreprocessingModel(tf.keras.Model):
@@ -205,6 +207,8 @@ class PreprocessingModel(tf.keras.Model):
                                         feature_name="shape")(graph_tensor)
         coupling_labels = tfgnn.keras.layers.Readout(node_set_name="_readout",
                                         feature_name="coupling")(graph_tensor)
+        
+        dummy_labels = tf.fill([tf.shape(coupling_labels)[0]], tf.constant(float('nan'), dtype=coupling_labels.dtype))
 
         graph_tensor = graph_tensor.remove_features(node_sets={"_readout": ["shift", "shape", "coupling"]})
 
@@ -212,6 +216,7 @@ class PreprocessingModel(tf.keras.Model):
             "shift": shift_labels,
             "shape": shape_labels,
             "coupling": coupling_labels,
+            "combined": dummy_labels
         }
 
         return graph_tensor, labels
@@ -224,17 +229,68 @@ def weighted_cce(class_weights):
     
     return loss
 
+def count_invalid_shapes(y_true, y_pred):    # A shape is invalid if the any token except the first is "m" or if any token after an "s" is not "s"
+    invalid_count = 0
+    shape_decoded = tf.argmax(y_pred, axis=-1)
+    for shape in shape_decoded:
+        m_indices = tf.where(tf.equal(shape_decoded, 0))
+        m_invalid_0 = False
+        m_invalid_1 = False
+        if tf.size(m_indices) > 0:
+            first_m = tf.reduce_min(m_indices)
+            m_invalid_0 = tf.reduce_any(tf.not_equal(shape[first_m + 1:], 1)) # Something after an "m" is not an "s"
+            m_invalid_1 = tf.reduce_any(tf.equal(shape[1:], 0)) # "m" is present, but not at the first position
+
+        s_indices = tf.where(tf.equal(shape_decoded, 0))
+        s_invalid = False
+        if tf.size(s_indices) > 0:
+            first_s = tf.reduce_min(s_indices)
+            s_invalid = tf.reduce_any(tf.not_equal(shape[first_s + 1:], 1)) # Something after an "s" is not an "s"
+
+        if tf.reduce_any([m_invalid_0, m_invalid_1, s_invalid]):  # if any one is invalid, the invalid count goes up
+            invalid_count += 1
+
+    return invalid_count
+
+
+def count_invalid_couplings(y_true, y_pred):    # A coupling is invalid if a token with an s or m as shape has a value for the coupling constant
+    invalid_count = 0
+    shape_pred, coupling_pred = tf.split(y_pred, [8, 1], axis=-1)
+
+    shape_decoded = tf.argmax(shape_pred, axis=-1)
+    for coupling in coupling_pred:
+        coupling = tf.squeeze(coupling, axis=-1)
+        i = 0
+        invalid_coupling = False
+        zero_indices = tf.where(tf.equal(coupling, 0.0))
+        zero_indices = tf.squeeze(zero_indices, axis=-1)
+
+        shape_m_or_s = tf.where(tf.logical_or(tf.equal(shape_decoded[i], 0), tf.equal(shape_decoded[i], 1)))
+        shape_m_or_s = tf.squeeze(shape_m_or_s, axis=-1)
+
+        if tf.equal(tf.shape(shape_m_or_s), tf.shape(zero_indices)):
+            invalid_coupling = tf.reduce_any(tf.not_equal(shape_m_or_s, zero_indices))   # Check if zero values are (only) given for m or s shapes
+        else:
+            invalid_coupling = True   # If there is a different number of zero's and m/s, it's always invalid
+            
+        if invalid_coupling:
+            invalid_count += 1
+        
+        i += 1
+
+    return invalid_count
+
 if __name__ == "__main__":
     #path = "/home/s3665828/Documents/Masters_Thesis/repo/CASCADE/"
     path = "C:/Users/niels/Documents/repo/CASCADE/"
     
     batch_size = 32
     initial_learning_rate = 5E-4
-    epochs = 1
+    epochs = 100
     epoch_divisor = 1
 
-    train_path = path + "data/own_data/Shift/own_train.tfrecords.gzip"
-    val_path = path + "data/own_data/Shift/own_valid.tfrecords.gzip"
+    train_path = path + "data/own_data/All/own_train.tfrecords.gzip"
+    val_path = path + "data/own_data/All/own_valid.tfrecords.gzip"
 
     train_size = 63324
     valid_size = 13569
@@ -270,16 +326,17 @@ if __name__ == "__main__":
     loss = {"shift": tf.keras.losses.MeanAbsoluteError(),
             "shape": weighted_cce([1.0,0.4,0.15,0.05]),
             "coupling": tf.keras.losses.MeanAbsoluteError()}
-    metrics = [tf.keras.losses.MeanAbsoluteError()]
+    metrics = {"shape": count_invalid_shapes,
+              "combined": count_invalid_couplings}
 
     model.compile(tf.keras.optimizers.Adam(learning_rate), loss=loss, metrics=metrics)
     model.summary()
 
-    code_path = path + "code/predicting_model/Shift/"
+    code_path = path + "code/predicting_model/"
     filepath = code_path + "gnn/models/test_model/checkpoint.weights.h5"
     log_dir = code_path + "logs/fit/" + datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
     tensorboard_callback = tf.keras.callbacks.TensorBoard(log_dir=log_dir, histogram_freq=1)
-    checkpoint = tf.keras.callbacks.ModelCheckpoint(filepath, save_best_only=True, save_freq="epoch", verbose=1, monitor="val_mean_absolute_error", save_weights_only=True)
+    checkpoint = tf.keras.callbacks.ModelCheckpoint(filepath, save_best_only=True, save_freq="epoch", verbose=1, monitor="val_loss", save_weights_only=True)
     history = model.fit(train_ds, steps_per_epoch=steps_per_epoch, validation_steps=validation_steps, epochs=epochs, validation_data=val_ds, callbacks=[tensorboard_callback, checkpoint]) 
 
     #load best weights before saving
@@ -289,7 +346,7 @@ if __name__ == "__main__":
     preproc_input = tfgnn.keras.layers.ParseExample(example_input_spec)(serving_input)
     serving_model_input, _ = preproc_model(preproc_input)
     serving_logits = model(serving_model_input)
-    serving_output = {"shifts": serving_logits}
+    serving_output = {"shifts": serving_logits["shift"], "shape": serving_logits["shape"], "coupling_constants": serving_logits["coupling"]}
     exported_model = tf.keras.Model(serving_input, serving_output)
     exported_model.export(code_path + "gnn/models/test_model")
    
