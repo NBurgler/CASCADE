@@ -140,16 +140,11 @@ class GraphUpdateLayer(tf.keras.layers.Layer):
         graph, new_feature = inputs
 
         return update_graph(graph, new_feature, self.new_feature_name)
-
-
-def _build_model(graph_tensor_spec):
-    input_graph = tf.keras.layers.Input(type_spec=graph_tensor_spec)
-
-    base_graph = tfgnn.keras.layers.MapFeatures(node_sets_fn=set_initial_node_state, edge_sets_fn=set_initial_edge_state)(input_graph)
-
-    def gnn(graph):
-        for _ in range(3):
-            graph = tfgnn.keras.layers.GraphUpdate(
+    
+class GNNLayer(tf.keras.layers.Layer):
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        self.graph_update = tfgnn.keras.layers.GraphUpdate(
                 edge_sets={"interatomic_distance": tfgnn.keras.layers.EdgeSetUpdate(
                     next_state=tfgnn.keras.layers.ResidualNextState(node_updating())
                 )},
@@ -158,19 +153,32 @@ def _build_model(graph_tensor_spec):
                         reduce_type="mean|sum", 
                         tag=tfgnn.TARGET)},
                     next_state=tfgnn.keras.layers.ResidualNextState(edge_updating())
-                )}   
-            )(graph)
+                )} 
+        )
+
+    def call(self, graph):
+        for _ in range(3):
+            graph = self.graph_update(graph)
+
         return graph
 
+
+def _build_model(graph_tensor_spec):
+    input_graph = tf.keras.layers.Input(type_spec=graph_tensor_spec)
+
+    base_graph = tfgnn.keras.layers.MapFeatures(node_sets_fn=set_initial_node_state, edge_sets_fn=set_initial_edge_state)(input_graph)
+
+    gnn_layer = GNNLayer()
+
     ### SHIFT PREDICTION ###
-    graph = gnn(base_graph)
+    graph = gnn_layer(base_graph)
     readout_features = tfgnn.keras.layers.StructuredReadout("hydrogen")(graph)
     shift_output = readout_layers()(readout_features)
     
     graph_with_shift = GraphUpdateLayer(new_feature_name="shift")([base_graph, shift_output])
 
     ### SHAPE PREDICTION ###
-    graph = gnn(graph_with_shift)
+    graph = gnn_layer(graph_with_shift)
     graph_output = tfgnn.keras.layers.StructuredReadout("hydrogen")(graph)
     shape_branch = tf.keras.layers.Dense(128)(graph_output)
     shape_branch = tf.keras.layers.RepeatVector(4)(shape_branch)
@@ -183,7 +191,7 @@ def _build_model(graph_tensor_spec):
     graph_with_shape = GraphUpdateLayer(new_feature_name="shape")([base_graph, shape_output])
 
     ### COUPLING CONSTANT PREDICTION ###
-    graph = gnn(graph_with_shape)
+    graph = gnn_layer(graph_with_shape)
     graph_output = tfgnn.keras.layers.StructuredReadout("hydrogen")(graph)
     coupling_branch = tf.keras.layers.Dense(128)(graph_output)
     coupling_branch = tf.keras.layers.RepeatVector(4)(coupling_branch)
