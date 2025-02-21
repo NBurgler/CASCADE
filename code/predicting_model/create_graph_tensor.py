@@ -112,12 +112,6 @@ def create_dictionary(key, path, type, save=False, filepath="", name="", smiles=
     bond_df = pd.DataFrame.from_dict(bond_dict)
     distance_df = pd.DataFrame.from_dict(distance_dict)
 
-    print(mol_df)
-    print(atom_df)
-    print(bond_df)
-    print(distance_df)
-    print(bad_mols)
-
     bond_df["norm_distance"] = (bond_df["distance"] - bond_df["distance"].mean())/bond_df["distance"].std()
 
     if save:

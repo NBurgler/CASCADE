@@ -16,14 +16,15 @@ if __name__ == "__main__":
         peaks = peaks.sort_values(by="Shift", ascending=False)
         peaks = peaks.drop("Peak", axis=1)
         for j, peak in peaks.iterrows():
-            peak_data = {"mol_id": [], "Shift": [], "Shape": [], "Coupling": [], "atom_idx": []}
+            peak_data = {"mol_id": [], "shift": [], "shape": [], "coupling": [], "atom_idx": []}
             peak_data["mol_id"] = peak["mol_id"]
-            peak_data["Shift"] = peak["Shift"]
-            peak_data["Shape"] = peak["Shape"]
-            peak_data["Coupling"] = peak["Coupling"]
+            peak_data["shift"] = peak["Shift"]
+            peak_data["shape"] = peak["Shape"]
+            peak_data["coupling"] = peak["Coupling"]
             peak_data["atom_idx"] = peak["atom_idx"]
+            peak_data["amount"] = len(peak["atom_idx"])
             peak_list.append(peak_data)
 
     peak_df = pd.DataFrame(peak_list)
-    #peak_df.to_csv(path + "code/matching_model/peaks.csv.gz", compression='gzip')
+    peak_df.to_csv(path + "code/matching_model/peak_data.csv.gz", compression='gzip')
     print(peak_df)

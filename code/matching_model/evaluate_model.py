@@ -2,7 +2,7 @@ import tensorflow as tf
 import tensorflow_gnn as tfgnn
 import numpy as np
 import pandas as pd
-from pulp import LpMinimize, LpProblem, LpVariable, lpSum
+from pulp import LpMinimize, LpProblem, LpVariable, lpSum, PULP_CBC_CMD
 
 import sys
 from pathlib import Path
@@ -64,9 +64,9 @@ def predict_shape_and_coupling(path, input_dict):
 
 # From a smiles, create the necessarry features and predict shift, shape, and coupling constants. Returns all predicted peaks
 def predict_peaks(smiles="C#CCC1CCOCO1"):
-    path = "/home/s3665828/Documents/Masters_Thesis/repo/CASCADE/"
+    #path = "/home/s3665828/Documents/Masters_Thesis/repo/CASCADE/"
     #path = "/home1/s3665828/code/CASCADE/"
-    #path = "C:/Users/niels/Documents/repo/CASCADE/" ## TODO: CHANGE PATH TO BE RELATIVE
+    path = "C:/Users/niels/Documents/repo/CASCADE/" ## TODO: CHANGE PATH TO BE RELATIVE
 
     mol_df, atom_df, bond_df, distance_df = create_graph_tensor.create_dictionary(2, path, type=type, smiles=smiles, name=smiles)
 
@@ -84,7 +84,6 @@ def predict_peaks(smiles="C#CCC1CCOCO1"):
     shapes, couplings = predict_shape_and_coupling(path, input_dict)
     shapes = shapes.numpy()
 
-    predicted = [shifts, shapes, couplings]
     predicted_peaks = []
 
     for idx in range(len(shifts)):
@@ -145,7 +144,6 @@ def parse_example(serialized_example):
     return inputs
 
 def minimize_distance(matrix, amount):
-    print(amount)
     m, n = len(matrix), len(matrix[0])  # Rows and Columns
     prob = LpProblem("MinimizeDistance", LpMinimize)
 
@@ -161,14 +159,12 @@ def minimize_distance(matrix, amount):
 
     # Constraint: Each column must have at least one selected value
     for j in range(n):
-        print(amount[j])
         if amount[j] != (None or '-'):
             prob += lpSum(x[i][j] for i in range(m)) == int(amount[j])
         else:
             prob += lpSum(x[i][j] for i in range(m)) >= 1
 
-    # Solve the problem
-    prob.solve()
+    prob.solve(PULP_CBC_CMD(msg=False))
 
     # Extract the selected values and total cost
     selected = [(i, j) for i in range(m) for j in range(n) if x[i][j].value() == 1]
@@ -176,9 +172,9 @@ def minimize_distance(matrix, amount):
     return selected, total_cost
 
 def create_distance_matrix(predicted_peaks, observed_peaks):
-    path = "/home/s3665828/Documents/Masters_Thesis/repo/CASCADE/"
+    #path = "/home/s3665828/Documents/Masters_Thesis/repo/CASCADE/"
     #path = "/home1/s3665828/code/CASCADE/"
-    #path = "C:/Users/niels/Documents/repo/CASCADE/"
+    path = "C:/Users/niels/Documents/repo/CASCADE/"
     
     distance_matrix = np.empty(shape=(len(predicted_peaks), len(observed_peaks)))
 
@@ -197,12 +193,23 @@ def create_distance_matrix(predicted_peaks, observed_peaks):
             obs_coupling = tf.expand_dims(tf.convert_to_tensor(convert_coupling_constants(obs_peak["coupling"])), axis=0)
 
             sample = [pred_shift, pred_shape, pred_coupling, obs_shift, obs_shape, obs_coupling]
-            distance = model.predict(sample)
+            distance = model.predict(sample, verbose=0)
             distance_matrix[i][j] = distance[0][0]
             j += 1
         i += 1
 
     return distance_matrix
+
+def dataframe_to_list_of_dicts(peak_dataframe):
+    peak_list = []
+    for i, peak in peak_dataframe.iterrows():
+        shift = float(peak["shift"])
+        shape = peak["shape"]
+        coupling = (";").join(peak["coupling"].split(", "))
+        peak_list.append({"shift": shift, "shape": shape, "coupling": coupling})
+
+    return peak_list
+
 
 if __name__ == '__main__':
     #path = "/home/s3665828/Documents/Masters_Thesis/repo/CASCADE/"
@@ -213,47 +220,47 @@ if __name__ == '__main__':
     model = tf.keras.models.load_model(path + "code/matching_model/gnn/models/distance_model")
     signature_fn = model.signatures[tf.saved_model.DEFAULT_SERVING_SIGNATURE_DEF_KEY]
 
-    predicted_peaks, atom_indices = predict_peaks(path, "C#CCC1CCOCO1")
+    mol_df = pd.read_csv(path + "code/matching_model/mol_data.csv.gz", compression="gzip", index_col=0)
 
-    observed_peaks = []
-    num_peaks = int(input("How many peaks do you want to enter? "))
-    for _ in range(num_peaks):
-        observed_peak = {"shift": None, "shape": None, "coupling": None}
-        observed_peak["shift"] = (float(input("Please enter the shift of the peak: ")))
-        observed_peak["shape"] = (input("Please enter the shape of the peak: "))
-        observed_peak["coupling"] = (input("Please enter the coupling constants of the peak, separated by a semicolon: "))
-        observed_peaks.append(observed_peak)
+    #predicted_peaks, atom_indices = predict_peaks("C#CCC1CCOCO1")
+
+    observed_peaks_df = pd.read_csv(path + "code/matching_model/peak_data.csv.gz", compression="gzip", index_col=0)
+
+    correct_predictions = 0
+    total_predictions = 0
+    incorrect_predictions = []
+    for i, mol in mol_df.iterrows():
+        mol_id = mol["mol_id"]
+        observed_peaks = observed_peaks_df.loc[observed_peaks_df["mol_id"] == mol_id]
+        observed_atom_idx = observed_peaks["atom_idx"].reset_index()
+        amount = observed_peaks["amount"].to_list()
+
+        observed_peaks = dataframe_to_list_of_dicts(observed_peaks)
+
+        predicted_peaks, predicted_atom_idx = predict_peaks(mol["smiles"])
+        
+        distance_matrix = create_distance_matrix(predicted_peaks, observed_peaks)
+
+        selected, total_cost = minimize_distance(distance_matrix, amount)
+        incorrect_mol = None
+        for predicted_idx, observed_idx in selected:
+            if str(predicted_atom_idx[predicted_idx]) in observed_atom_idx["atom_idx"].iloc[observed_idx]:
+                correct_predictions += 1
+            else:
+                incorrect_mol = mol_df["smiles"].loc[mol_df["mol_id"] == mol_id].values[0]
+            total_predictions += 1
+
+        if incorrect_mol != None:
+            incorrect_predictions.append(mol_df["smiles"].loc[mol_df["mol_id"] == mol_id].values[0])
+
+    with open(path + "code/matching_model/incorrect_predictions.txt", 'w') as f:
+     f.write("Correct Predictions: ")
+     f.write(str(correct_predictions) + "/" + str(total_predictions))
+     f.write("\n")
+     f.write("Molecules with errors:")
+     f.write("\n")
+     for smiles in incorrect_predictions:
+         f.write(smiles)
+         f.write("\n")
+
     
-    print(observed_peaks)
-    distance_matrix = np.empty(shape=(len(predicted_peaks), num_peaks))
-
-    i = 0
-    for pred_peak in predicted_peaks:
-        j = 0
-        for obs_peak in observed_peaks:
-            pred_shift = tf.expand_dims(tf.expand_dims(tf.convert_to_tensor(pred_peak["shift"]), axis=0), axis=0)
-            pred_shape = tf.expand_dims(tf.convert_to_tensor(pred_peak["shape"]), axis=0)
-            pred_coupling = tf.expand_dims(tf.convert_to_tensor(pred_peak["coupling"]), axis=0)
-            obs_shift = tf.expand_dims(tf.expand_dims(tf.convert_to_tensor(obs_peak["shift"]), axis=0), axis=0)
-            obs_shape = tf.expand_dims(tf.convert_to_tensor(one_hot_encode_shape(obs_peak["shape"])), axis=0)
-            obs_coupling = tf.expand_dims(tf.convert_to_tensor(convert_coupling_constants(obs_peak["coupling"])), axis=0)
-
-            sample = [pred_shift, pred_shape, pred_coupling, obs_shift, obs_shape, obs_coupling]
-            distance = model.predict(sample)
-            distance_matrix[i][j] = distance[0][0]
-            j += 1
-        i += 1
-
-    selected, total_cost = minimize_distance(distance_matrix)
-    print(distance_matrix)
-    print(selected)
-    print(selected[0])
-    print(selected[0][0])
-    print(selected[0][1])
-
-    '''dataset = tf.data.TFRecordDataset([path + "data/own_data/matching_model/own_train.tfrecords.gzip"], compression_type="GZIP")
-    dataset = dataset.map(parse_example).batch(1)
-    for data in dataset:
-        sample = [data["predicted_shift"], data["predicted_shape"], data["predicted_coupling"], data["observed_shift"], data["observed_shape"], data["observed_coupling"]]
-        predictions = model.predict(sample)
-        print(predictions)'''
