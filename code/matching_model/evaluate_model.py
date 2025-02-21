@@ -226,9 +226,10 @@ if __name__ == '__main__':
 
     observed_peaks_df = pd.read_csv(path + "code/matching_model/peak_data.csv.gz", compression="gzip", index_col=0)
 
-    correct_predictions = 0
-    total_predictions = 0
-    incorrect_predictions = []
+    correct_peaks = 0
+    total_peaks = 0
+    correct_mols = 0
+    incorrect_mols = []
     for i, mol in mol_df.iterrows():
         mol_id = mol["mol_id"]
         observed_peaks = observed_peaks_df.loc[observed_peaks_df["mol_id"] == mol_id]
@@ -245,22 +246,25 @@ if __name__ == '__main__':
         incorrect_mol = None
         for predicted_idx, observed_idx in selected:
             if str(predicted_atom_idx[predicted_idx]) in observed_atom_idx["atom_idx"].iloc[observed_idx]:
-                correct_predictions += 1
+                correct_peaks += 1
             else:
                 incorrect_mol = mol_df["smiles"].loc[mol_df["mol_id"] == mol_id].values[0]
-            total_predictions += 1
+            total_peaks += 1
 
-        if incorrect_mol != None:
-            incorrect_predictions.append(mol_df["smiles"].loc[mol_df["mol_id"] == mol_id].values[0])
+        if incorrect_mol == None:
+            correct_mols += 1
+        else:
+            incorrect_mols.append(mol_df["smiles"].loc[mol_df["mol_id"] == mol_id].values[0])
 
     with open(path + "code/matching_model/incorrect_predictions.txt", 'w') as f:
-     f.write("Correct Predictions: ")
-     f.write(str(correct_predictions) + "/" + str(total_predictions))
+     f.write("Mols Correctly Predicted: ")
+     f.write(str(correct_mols) + "/" + str(len(mol_df)))
+     f.write("\n")
+     f.write("Peaks Correctly Predicted: ")
+     f.write(str(correct_peaks) + "/" + str(total_peaks))
      f.write("\n")
      f.write("Molecules with errors:")
      f.write("\n")
-     for smiles in incorrect_predictions:
+     for smiles in incorrect_mols:
          f.write(smiles)
          f.write("\n")
-
-    
