@@ -62,6 +62,8 @@ def create_dictionary(key, path, type, save=False, filepath="", name="", smiles=
             smiles = sampleSplit[1]
             mol = Chem.MolFromSmiles(smiles)
             mol_entry, atom_entry, bond_entry, distance_entry, bad_mols = fill_dictionary(key, mol_id, mol, shift_data=sampleSplit, bad_mols=bad_mols)
+            if mol_entry == None:
+                    continue
             mol_list.extend(mol_entry)
             atom_list.extend(atom_entry)
             bond_list.extend(bond_entry)
@@ -76,6 +78,8 @@ def create_dictionary(key, path, type, save=False, filepath="", name="", smiles=
                 mol_id = int(mol.GetProp("_Name"))
                 mol.UpdatePropertyCache()
                 mol_entry, atom_entry, bond_entry, distance_entry, bad_mols = fill_dictionary(key, mol_id, mol, shift_data=shift_df)
+                if mol_entry == None:
+                    continue
                 mol_list.extend(mol_entry)
                 atom_list.extend(atom_entry)
                 bond_list.extend(bond_entry)
@@ -84,6 +88,8 @@ def create_dictionary(key, path, type, save=False, filepath="", name="", smiles=
     elif key == 2:  # single molecule
         mol = Chem.MolFromSmiles(smiles)
         mol_entry, atom_entry, bond_entry, distance_entry, bad_mols = fill_dictionary(key, 0, mol)
+        if mol_entry == None:
+            return None, None, None, None
         mol_list.extend(mol_entry)
         atom_list.extend(atom_entry)
         bond_list.extend(bond_entry)
@@ -165,10 +171,12 @@ def fill_dictionary(key, mol_id, mol, shift_data="", bad_mols=[]):
             distance_matrix = average_distance_matrix(mol, numConfs)
         except ValueError:
             bad_mol = Chem.RemoveHs(mol)
-            print(mol_id)
-            print(Chem.MolToSmiles(bad_mol))
+            print("UNABLE TO FIND EMBEDDING")
+            print("mol_id: " + str(mol_id))
+            print("smiles: " + str(Chem.MolToSmiles(bad_mol)))
             distance_matrix = np.zeros((n_atoms, n_atoms))
             bad_mols.append(mol_id)
+            return None, None, None, None, None
 
         iter_H = 0
 

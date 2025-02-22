@@ -69,6 +69,8 @@ def predict_peaks(smiles="C#CCC1CCOCO1"):
     path = "C:/Users/niels/Documents/repo/CASCADE/" ## TODO: CHANGE PATH TO BE RELATIVE
 
     mol_df, atom_df, bond_df, distance_df = create_graph_tensor.create_dictionary(2, path, type=type, smiles=smiles, name=smiles)
+    if mol_df is None:
+        return None, None
 
     example = create_graph_tensor.create_single_tensor(mol_df, atom_df, bond_df, distance_df)   # Create tensor for shift prediction
     example = tf.reshape(example, (1,))
@@ -215,8 +217,7 @@ if __name__ == '__main__':
     #path = "/home/s3665828/Documents/Masters_Thesis/repo/CASCADE/"
     #path = "/home1/s3665828/code/CASCADE/"
     path = "C:/Users/niels/Documents/repo/CASCADE/"
-
-
+    
     model = tf.keras.models.load_model(path + "code/matching_model/gnn/models/distance_model")
     signature_fn = model.signatures[tf.saved_model.DEFAULT_SERVING_SIGNATURE_DEF_KEY]
 
@@ -239,6 +240,8 @@ if __name__ == '__main__':
         observed_peaks = dataframe_to_list_of_dicts(observed_peaks)
 
         predicted_peaks, predicted_atom_idx = predict_peaks(mol["smiles"])
+        if predicted_peaks is None:
+            continue
         
         distance_matrix = create_distance_matrix(predicted_peaks, observed_peaks)
 
