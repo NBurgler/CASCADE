@@ -289,12 +289,13 @@ def count_invalid_couplings(y_true, y_pred):    # A coupling is invalid if a tok
     return invalid_count
 
 if __name__ == "__main__":
+    #path = "/home1/s3665828/code/CASCADE/"
     #path = "/home/s3665828/Documents/Masters_Thesis/repo/CASCADE/"
     path = "C:/Users/niels/Documents/repo/CASCADE/"
     
     batch_size = 32
     initial_learning_rate = 5E-4
-    epochs = 100
+    epochs = 500
     epoch_divisor = 1
 
     train_path = path + "data/own_data/All/own_train.tfrecords.gzip"
@@ -336,8 +337,11 @@ if __name__ == "__main__":
             "coupling": tf.keras.losses.MeanAbsoluteError()}
     metrics = {"shape": count_invalid_shapes,
               "combined": count_invalid_couplings}
+    loss_weights = {"shift": 1.0,
+                    "shape": 0.0,
+                    "coupling": 0.0}
 
-    model.compile(tf.keras.optimizers.Adam(learning_rate), loss=loss, metrics=metrics)
+    model.compile(tf.keras.optimizers.Adam(learning_rate), loss=loss, metrics=metrics, loss_weights=loss_weights)
     model.summary()
 
     code_path = path + "code/predicting_model/"
@@ -345,7 +349,24 @@ if __name__ == "__main__":
     log_dir = code_path + "logs/fit/" + datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
     tensorboard_callback = tf.keras.callbacks.TensorBoard(log_dir=log_dir, histogram_freq=1)
     checkpoint = tf.keras.callbacks.ModelCheckpoint(filepath, save_best_only=True, save_freq="epoch", verbose=1, monitor="val_loss", save_weights_only=True)
-    history = model.fit(train_ds, steps_per_epoch=steps_per_epoch, validation_steps=validation_steps, epochs=epochs, validation_data=val_ds, callbacks=[tensorboard_callback, checkpoint]) 
+    history1 = model.fit(train_ds, steps_per_epoch=steps_per_epoch, validation_steps=validation_steps, epochs=25, validation_data=val_ds, callbacks=[tensorboard_callback, checkpoint])
+
+    loss_weights = {"shift": 1.0,
+                    "shape": 0.5,
+                    "coupling": 0.5}
+    model.compile(tf.keras.optimizers.Adam(learning_rate), loss=loss, metrics=metrics, loss_weights=loss_weights)
+    history2 = model.fit(train_ds, steps_per_epoch=steps_per_epoch, validation_steps=validation_steps, epochs=25, validation_data=val_ds, callbacks=[tensorboard_callback, checkpoint])
+
+    loss_weights = {"shift": 1.0,
+                    "shape": 0.0,
+                    "coupling": 0.0}
+    model.compile(tf.keras.optimizers.Adam(learning_rate), loss=loss, metrics=metrics, loss_weights=loss_weights)
+    history3 = model.fit(train_ds, steps_per_epoch=steps_per_epoch, validation_steps=validation_steps, epochs=epochs-50, validation_data=val_ds, callbacks=[tensorboard_callback, checkpoint])
+
+    history = {
+    key: history1.history[key] + history2.history[key] + history3.history[key]
+    for key in history1.history
+    }
 
     #load best weights before saving
     model.load_weights(filepath)
