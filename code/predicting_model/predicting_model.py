@@ -161,6 +161,20 @@ class GNNLayer(tf.keras.layers.Layer):
             graph = self.graph_update(graph)
 
         return graph
+    
+def _build_shift_submodel(graph_tensor_spec):
+    input_graph = tf.keras.layers.Input(type_spec=graph_tensor_spec)
+
+    base_graph = tfgnn.keras.layers.MapFeatures(node_sets_fn=set_initial_node_state, edge_sets_fn=set_initial_edge_state)(input_graph)
+
+    gnn_layer = GNNLayer(name="gnn")
+
+    ### SHIFT PREDICTION ###
+    graph = gnn_layer(base_graph)
+    readout_features = tfgnn.keras.layers.StructuredReadout("hydrogen")(graph)
+    shift_output = readout_layers()(readout_features)
+
+    return tf.keras.Model(inputs=[input_graph], outputs={"shift": shift_output})
 
 
 def _build_model(graph_tensor_spec):
@@ -168,7 +182,7 @@ def _build_model(graph_tensor_spec):
 
     base_graph = tfgnn.keras.layers.MapFeatures(node_sets_fn=set_initial_node_state, edge_sets_fn=set_initial_edge_state)(input_graph)
 
-    gnn_layer = GNNLayer()
+    gnn_layer = GNNLayer(name="gnn")
 
     ### SHIFT PREDICTION ###
     graph = gnn_layer(base_graph)
@@ -225,6 +239,21 @@ class PreprocessingModel(tf.keras.Model):
             "shape": shape_labels,
             "coupling": coupling_labels,
             "combined": dummy_labels
+        }
+
+        return graph_tensor, labels
+    
+class PreprocessingModelShift(tf.keras.Model):
+    def call(self, inputs):
+        graph_tensor = inputs.merge_batch_to_components()
+
+        shift_labels = tfgnn.keras.layers.Readout(node_set_name="_readout",
+                                        feature_name="shift")(graph_tensor)
+
+        graph_tensor = graph_tensor.remove_features(node_sets={"_readout": ["shift", "shape", "coupling"]})
+
+        labels = {
+            "shift": shift_labels
         }
 
         return graph_tensor, labels
@@ -295,7 +324,7 @@ if __name__ == "__main__":
     
     batch_size = 32
     initial_learning_rate = 5E-4
-    epochs = 15
+    epochs = 500
     epoch_divisor = 1
 
     train_path = path + "data/own_data/All/own_train.tfrecords.gzip"
@@ -324,56 +353,52 @@ if __name__ == "__main__":
 
     # preprocessing
     preproc_input = tf.keras.layers.Input(type_spec=preproc_input_spec)
+    preproc_submodel = PreprocessingModelShift()
+    train_ds_shift = train_ds.map(preproc_submodel)
+    val_ds_shift = val_ds.map(preproc_submodel)
+
+    preproc_input = tf.keras.layers.Input(type_spec=preproc_input_spec)
     preproc_model = PreprocessingModel()
     train_ds = train_ds.map(preproc_model)
     val_ds = val_ds.map(preproc_model)
 
-    # model
+    # models
+    code_path = path + "code/predicting_model/"
+    filepath = code_path + "gnn/models/test_model/checkpoint.weights.h5"
+
+    log_dir = code_path + "logs/fit/" + datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
+    tensorboard_callback = tf.keras.callbacks.TensorBoard(log_dir=log_dir, histogram_freq=1)
+    checkpoint = tf.keras.callbacks.ModelCheckpoint(filepath, save_best_only=True, save_freq="epoch", verbose=1, monitor="val_loss", save_weights_only=True)
+
+    # shift submodel
     model_input_spec, _ = train_ds.element_spec
+    submodel = _build_shift_submodel(model_input_spec)
+
+    loss = {"shift": tf.keras.losses.MeanAbsoluteError()}
+    submodel.compile(tf.keras.optimizers.Adam(learning_rate), loss=loss)
+    submodel.summary()
+    history1 = submodel.fit(train_ds_shift, steps_per_epoch=steps_per_epoch, validation_steps=validation_steps, epochs=50, validation_data=val_ds_shift, callbacks=[tensorboard_callback, checkpoint])
+    submodel.save_weights(code_path + "gnn/models/test_model/shift_pretrained.h5")
+
+    # full model
     model = _build_model(model_input_spec)
+    model.load_weights(code_path + "gnn/models/test_model/shift_pretrained.h5", by_name=True)
 
     loss = {"shift": tf.keras.losses.MeanAbsoluteError(),
-            "shape": None,
-            "coupling": None,
+            "shape": weighted_cce([1.0,0.4,0.15,0.05]),
+            "coupling": tf.keras.losses.MeanAbsoluteError(),
             "combined": None}
     metrics = {"shape": [count_invalid_shapes, weighted_cce([1.0,0.4,0.15,0.05])],
               "combined": [count_invalid_couplings]}
     loss_weights = {"shift": 1.0,
-                    "shape": 0.0,
-                    "coupling": 0.0}
-
+                    "shape": 1.0,
+                    "coupling": 1.0}
     model.compile(tf.keras.optimizers.Adam(learning_rate), loss=loss, metrics=metrics, loss_weights=loss_weights)
     model.summary()
-
-    code_path = path + "code/predicting_model/"
-    filepath = code_path + "gnn/models/test_model/checkpoint.weights.h5"
-    log_dir = code_path + "logs/fit/" + datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
-    tensorboard_callback = tf.keras.callbacks.TensorBoard(log_dir=log_dir, histogram_freq=1)
-    checkpoint = tf.keras.callbacks.ModelCheckpoint(filepath, save_best_only=True, save_freq="epoch", verbose=1, monitor="val_loss", save_weights_only=True)
-    history1 = model.fit(train_ds, steps_per_epoch=steps_per_epoch, validation_steps=validation_steps, epochs=5, validation_data=val_ds, callbacks=[tensorboard_callback, checkpoint])
-
-    loss = {"shift": tf.keras.losses.MeanAbsoluteError(),
-            "shape": weighted_cce([1.0,0.4,0.15,0.05]),
-            "coupling": tf.keras.losses.MeanAbsoluteError(),
-            "combined": None}
-    loss_weights = {"shift": 1.0,
-                    "shape": 0.5,
-                    "coupling": 0.5}
-    model.compile(tf.keras.optimizers.Adam(learning_rate), loss=loss, metrics=metrics, loss_weights=loss_weights)
-    history2 = model.fit(train_ds, steps_per_epoch=steps_per_epoch, validation_steps=validation_steps, epochs=5, validation_data=val_ds, callbacks=[tensorboard_callback, checkpoint])
-
-    loss = {"shift": tf.keras.losses.MeanAbsoluteError(),
-            "shape": weighted_cce([1.0,0.4,0.15,0.05]),
-            "coupling": tf.keras.losses.MeanAbsoluteError(),
-            "combined": None}
-    loss_weights = {"shift": 1.0,
-                    "shape": 0.0,
-                    "coupling": 0.0}
-    model.compile(tf.keras.optimizers.Adam(learning_rate), loss=loss, metrics=metrics, loss_weights=loss_weights)
-    history3 = model.fit(train_ds, steps_per_epoch=steps_per_epoch, validation_steps=validation_steps, epochs=epochs-10, validation_data=val_ds, callbacks=[tensorboard_callback, checkpoint])
+    history2 = model.fit(train_ds, steps_per_epoch=steps_per_epoch, validation_steps=validation_steps, epochs=epochs-50, validation_data=val_ds, callbacks=[tensorboard_callback, checkpoint])
 
     history = {
-    key: history1.history[key] + history2.history[key] + history3.history[key]
+    key: history1.history[key] + history2.history[key]
     for key in history1.history
     }
 
