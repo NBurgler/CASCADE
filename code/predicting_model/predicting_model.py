@@ -144,22 +144,24 @@ class GraphUpdateLayer(tf.keras.layers.Layer):
 class GNNLayer(tf.keras.layers.Layer):
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
-        self.graph_update = tfgnn.keras.layers.GraphUpdate(
-                edge_sets={"interatomic_distance": tfgnn.keras.layers.EdgeSetUpdate(
-                    next_state=tfgnn.keras.layers.ResidualNextState(node_updating())
-                )},
-                node_sets={"atom": tfgnn.keras.layers.NodeSetUpdate(
-                    {"interatomic_distance": tfgnn.keras.layers.Pool(
-                        reduce_type="mean|sum", 
-                        tag=tfgnn.TARGET)},
-                    next_state=tfgnn.keras.layers.ResidualNextState(edge_updating())
-                )} 
-        )
+
+        self.gnn_layers = [
+                tfgnn.keras.layers.GraphUpdate(
+                    edge_sets={"interatomic_distance": tfgnn.keras.layers.EdgeSetUpdate(
+                        next_state=tfgnn.keras.layers.ResidualNextState(node_updating())
+                    )},
+                    node_sets={"atom": tfgnn.keras.layers.NodeSetUpdate(
+                        {"interatomic_distance": tfgnn.keras.layers.Pool(
+                            reduce_type="mean|sum", 
+                            tag=tfgnn.TARGET)},
+                        next_state=tfgnn.keras.layers.ResidualNextState(edge_updating())
+                    )} 
+            ) for _ in range(3)
+        ]
 
     def call(self, graph):
-        for _ in range(3):
-            graph = self.graph_update(graph)
-
+        for gnn_layer in self.gnn_layers:
+            graph = gnn_layer(graph)
         return graph
     
 def _build_shift_submodel(graph_tensor_spec):
@@ -318,9 +320,9 @@ def count_invalid_couplings(y_true, y_pred):    # A coupling is invalid if a tok
     return invalid_count
 
 if __name__ == "__main__":
-    path = "/home1/s3665828/code/CASCADE/"
+    #path = "/home1/s3665828/code/CASCADE/"
     #path = "/home/s3665828/Documents/Masters_Thesis/repo/CASCADE/"
-    #path = "C:/Users/niels/Documents/repo/CASCADE/"
+    path = "C:/Users/niels/Documents/repo/CASCADE/"
     
     batch_size = 32
     initial_learning_rate = 5E-4
@@ -377,7 +379,7 @@ if __name__ == "__main__":
     loss = {"shift": tf.keras.losses.MeanAbsoluteError()}
     submodel.compile(tf.keras.optimizers.Adam(learning_rate), loss=loss)
     submodel.summary()
-    history1 = submodel.fit(train_ds_shift, steps_per_epoch=steps_per_epoch, validation_steps=validation_steps, epochs=50, validation_data=val_ds_shift, callbacks=[tensorboard_callback, checkpoint])
+    history1 = submodel.fit(train_ds_shift, steps_per_epoch=steps_per_epoch, validation_steps=validation_steps, epochs=20, validation_data=val_ds_shift, callbacks=[tensorboard_callback, checkpoint])
     submodel.save_weights(code_path + "gnn/models/test_model/shift_pretrained.h5")
 
     # full model
@@ -395,7 +397,8 @@ if __name__ == "__main__":
                     "coupling": 1.0}
     model.compile(tf.keras.optimizers.Adam(learning_rate), loss=loss, metrics=metrics, loss_weights=loss_weights)
     model.summary()
-    history2 = model.fit(train_ds, steps_per_epoch=steps_per_epoch, validation_steps=validation_steps, epochs=epochs-50, validation_data=val_ds, callbacks=[tensorboard_callback, checkpoint])
+    checkpoint = tf.keras.callbacks.ModelCheckpoint(filepath, save_best_only=True, save_freq="epoch", verbose=1, monitor="val_loss", save_weights_only=True)
+    history2 = model.fit(train_ds, steps_per_epoch=steps_per_epoch, validation_steps=validation_steps, epochs=epochs-20, validation_data=val_ds, callbacks=[tensorboard_callback, checkpoint])
 
     history = {
     key: history1.history[key] + history2.history[key]
