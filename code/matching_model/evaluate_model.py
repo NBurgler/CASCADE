@@ -2,6 +2,7 @@ import tensorflow as tf
 import tensorflow_gnn as tfgnn
 import numpy as np
 import pandas as pd
+from tqdm import tqdm
 from pulp import LpMinimize, LpProblem, LpVariable, lpSum, PULP_CBC_CMD
 
 import sys
@@ -62,7 +63,7 @@ def predict_shape_and_coupling(path, input_dict):
     return shape_logits, coupling_logits
 
 
-# From a smiles, create the necessarry features and predict shift, shape, and coupling constants. Returns all predicted peaks
+# From a smiles, create the necessary features and predict shift, shape, and coupling constants. Returns all predicted peaks
 def predict_peaks(smiles="C#CCC1CCOCO1"):
     #path = "/home/s3665828/Documents/Masters_Thesis/repo/CASCADE/"
     #path = "/home1/s3665828/code/CASCADE/"
@@ -212,18 +213,11 @@ def dataframe_to_list_of_dicts(peak_dataframe):
 
     return peak_list
 
-
-if __name__ == '__main__':
-    #path = "/home/s3665828/Documents/Masters_Thesis/repo/CASCADE/"
-    #path = "/home1/s3665828/code/CASCADE/"
-    path = "C:/Users/niels/Documents/repo/CASCADE/"
-    
+def evaluate_matching_model(model, dataset):
     model = tf.keras.models.load_model(path + "code/matching_model/gnn/models/distance_model")
     signature_fn = model.signatures[tf.saved_model.DEFAULT_SERVING_SIGNATURE_DEF_KEY]
 
     mol_df = pd.read_csv(path + "code/matching_model/mol_data.csv.gz", compression="gzip", index_col=0)
-
-    #predicted_peaks, atom_indices = predict_peaks("C#CCC1CCOCO1")
 
     observed_peaks_df = pd.read_csv(path + "code/matching_model/peak_data.csv.gz", compression="gzip", index_col=0)
 
@@ -271,3 +265,126 @@ if __name__ == '__main__':
      for smiles in incorrect_mols:
          f.write(smiles)
          f.write("\n")
+
+def convert_shape_one_hot(one_hot_matrix):
+    shape = ''
+    for one_hot in one_hot_matrix:
+        if np.argmax(one_hot) == 0: shape += "m"
+        elif np.argmax(one_hot) == 1: shape += "s"
+        elif np.argmax(one_hot) == 2: shape += "d"
+        elif np.argmax(one_hot) == 3: shape += "t"
+        elif np.argmax(one_hot) == 4: shape += "q"
+        elif np.argmax(one_hot) == 5: shape += "p"
+        elif np.argmax(one_hot) == 6: shape += "h"
+        elif np.argmax(one_hot) == 7: shape += "v"
+
+    return shape
+
+def evaluate_predicting_model(model, dataset, num_samples, name):
+    graph_schema = tfgnn.read_schema(path + "code/predicting_model/GraphSchemaComplete.pbtxt")
+    graph_spec = tfgnn.create_graph_spec_from_schema_pb(graph_schema)
+
+    output = {"molecule":[], "mol_id":[], "index":[], "predicted_shift":[], "target_shift":[], "target_coupling":[], "predicted_coupling":[],
+              "coupling_pred_1":[], "coupling_pred_2":[], "coupling_pred_3":[], "coupling_pred_4":[],
+              "coupling_target_1":[], "coupling_target_2":[], "coupling_target_3":[], "coupling_target_4":[],
+              "target_shape":[], "predicted_shape":[], "converted_shape":[],
+              "shape_pred_1":[], "shape_pred_2":[], "shape_pred_3":[], "shape_pred_4":[], "shape_target_1":[], 
+              "shape_target_2":[], "shape_target_3":[], "shape_target_4":[]}
+    signature_fn = model.signatures[
+        tf.saved_model.DEFAULT_SERVING_SIGNATURE_DEF_KEY]
+
+    examples = next(iter(dataset.batch(num_samples)))
+    for i in tqdm(range(num_samples)):
+        example = tf.reshape(examples[i], (1,))
+        input_graph = tfgnn.parse_example(graph_spec, example)
+        input_dict = {"examples": example}
+        output_dict = signature_fn(**input_dict)
+        shift_logits = np.round(output_dict["shifts"], 2)
+        coupling_logits = np.round(output_dict["coupling_constants"], 2)
+        shape_logits = output_dict["shape"]
+        shift_labels = input_graph.node_sets["_readout"].__getitem__("shift").to_tensor()[0]
+        coupling_labels = input_graph.node_sets["_readout"].__getitem__("coupling").to_tensor()[0]
+        shape_labels = input_graph.node_sets["_readout"].__getitem__("shape").to_tensor()[0]
+        smiles = input_graph.context.__getitem__("smiles")
+        smiles = tf.get_static_value(smiles).astype(str)[0][0][0]
+        mol_id = input_graph.context.__getitem__("_mol_id")
+        mol_id = tf.get_static_value(mol_id).astype(str)[0][0][0]
+        index = input_graph.edge_sets["_readout/hydrogen"].adjacency.source[0]
+        if coupling_logits.ndim == 1:
+            coupling_logits = [coupling_logits]
+            shape_logits = [shape_logits]
+
+        for j, predicted_couplings in enumerate(coupling_logits):
+            predicted_shift = tf.get_static_value(shift_logits[j])[0]
+            target_shift = tf.get_static_value(shift_labels[j])[0]
+
+            target_couplings = coupling_labels[j]
+            target_couplings = tf.get_static_value(target_couplings).flatten()
+            predicted_couplings = tf.get_static_value(predicted_couplings).flatten()
+
+            output["molecule"].append(smiles)
+            output["mol_id"].append(mol_id)
+            output["index"].append(tf.get_static_value(index[j]))
+
+            output["target_shift"].append(target_shift)
+            output["predicted_shift"].append(predicted_shift)
+
+            output["target_coupling"].append(target_couplings)
+            output["predicted_coupling"].append(predicted_couplings)
+
+            output["coupling_pred_1"].append(tf.get_static_value(predicted_couplings[0]))
+            output["coupling_pred_2"].append(tf.get_static_value(predicted_couplings[1]))
+            output["coupling_pred_3"].append(tf.get_static_value(predicted_couplings[2]))
+            output["coupling_pred_4"].append(tf.get_static_value(predicted_couplings[3]))
+
+            output["coupling_target_1"].append(tf.get_static_value(target_couplings[0]))
+            output["coupling_target_2"].append(tf.get_static_value(target_couplings[1]))
+            output["coupling_target_3"].append(tf.get_static_value(target_couplings[2]))
+            output["coupling_target_4"].append(tf.get_static_value(target_couplings[3]))
+
+            predicted_shape = shape_logits[j]
+            converted_labels = convert_shape_one_hot(shape_labels[j])
+            converted_predictions = convert_shape_one_hot(predicted_shape)
+
+            output["target_shape"].append(tf.get_static_value(converted_labels))
+            output["predicted_shape"].append(tf.get_static_value(predicted_shape))
+            output["converted_shape"].append(tf.get_static_value(converted_predictions))
+
+            output["shape_pred_1"].append(converted_predictions[0])
+            output["shape_pred_2"].append(converted_predictions[1])
+            output["shape_pred_3"].append(converted_predictions[2])
+            output["shape_pred_4"].append(converted_predictions[3])
+
+            output["shape_target_1"].append(converted_labels[0])
+            output["shape_target_2"].append(converted_labels[1])
+            output["shape_target_3"].append(converted_labels[2])
+            output["shape_target_4"].append(converted_labels[3])
+
+    
+    lengths = {key: (len(key), len(value)) for key, value in output.items()}
+
+    output_df = pd.DataFrame.from_dict(output)
+    print(output_df[["molecule", "index", "target_shift", "target_shape", "target_coupling", "predicted_shift", "converted_shape", "predicted_coupling"]])
+    total = len(output_df)  
+
+    output_df.to_csv(path + "data/own_data/" + str(name) + ".csv.gz", compression='gzip')
+
+if __name__ == '__main__':
+    #path = "/home/s3665828/Documents/Masters_Thesis/repo/CASCADE/"
+    #path = "/home1/s3665828/code/CASCADE/"
+    path = "C:/Users/niels/Documents/repo/CASCADE/"
+
+    train_size = 63324
+    valid_size = 13569
+    test_size = 13571
+
+    dataset = tf.data.TFRecordDataset([path + "data/own_data/All/own_train.tfrecords.gzip"], compression_type="GZIP")
+    model = tf.saved_model.load(path + "code/predicting_model/gnn/models/separate_model")
+    evaluate_predicting_model(model, dataset, num_samples=train_size, name="separate_model_train")
+
+    dataset = tf.data.TFRecordDataset([path + "data/own_data/All/own_valid.tfrecords.gzip"], compression_type="GZIP")
+    evaluate_predicting_model(model, dataset, num_samples=valid_size, name="separate_model_valid")
+
+    dataset = tf.data.TFRecordDataset([path + "data/own_data/All/own_test.tfrecords.gzip"], compression_type="GZIP")
+    evaluate_predicting_model(model, dataset, num_samples=test_size, name="separate_model_test")
+    
