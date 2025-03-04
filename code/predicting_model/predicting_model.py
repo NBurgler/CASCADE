@@ -4,6 +4,10 @@ import tensorflow as tf
 import tensorflow_gnn as tfgnn
 import matplotlib.pyplot as plt
 import datetime
+import random
+import gc
+import optuna
+from functools import partial
 
 def node_preprocessing(node_set, *, node_set_name):
     features = node_set.get_features_dict()
@@ -92,12 +96,33 @@ def node_updating():
         dense(256, activation="relu"),
         dense(256)])
 
-def readout_layers():
+def shift_branch(name="shift"):
     return tf.keras.Sequential([
         dense(256, activation="relu"),
         dense(256, activation="relu"),
         dense(128, activation="relu"),
-        tf.keras.layers.Dense(1, activation="relu")], name="shift")
+        tf.keras.layers.Dense(1)], name=name)
+
+def shape_branch(name="shape"):
+    return tf.keras.Sequential([
+        tf.keras.layers.Dense(128),
+        tf.keras.layers.RepeatVector(4),
+        tf.keras.layers.GRU(256, return_sequences=True),
+        tf.keras.layers.GRU(64, return_sequences=True),
+        tf.keras.layers.GRU(64, return_sequences=True),
+        tf.keras.layers.Dense(8),
+        tf.keras.layers.Softmax()
+    ], name=name)
+
+def coupling_branch(name="coupling_branch"):
+    return tf.keras.Sequential([
+        tf.keras.layers.Dense(128),
+        tf.keras.layers.RepeatVector(4),
+        tf.keras.layers.GRU(256, return_sequences=True),
+        tf.keras.layers.GRU(128, return_sequences=True),
+        tf.keras.layers.Dense(1, activation="relu")
+    ], name=name)
+
 
 def mask_couplings(inputs):
     shapes, couplings = inputs
@@ -112,110 +137,154 @@ def mask_couplings(inputs):
 
     return masked_couplings
 
-def update_graph(graph, new_feature, new_feature_name):
+def update_graph(graph, new_features_dict):
     # Access the existing features of the "atom" node set
     existing_features = graph.node_sets["atom"].features
 
-    # Ensure that new_feature is a tf.Tensor
-    if not isinstance(new_feature, tf.Tensor):
-        raise ValueError("new_feature must be a tf.Tensor")
+    # Ensure that all values in new_features_dict are tf.Tensor
+    for feature_name, feature in new_features_dict.items():
+        if not isinstance(feature, tf.Tensor):
+            raise ValueError(f"{feature_name} must be a tf.Tensor")
 
-    # Create a dictionary for the updated features by combining existing features with the new feature
-    updated_features = {
-        **existing_features,  # Keep the existing features
-        new_feature_name: new_feature  # Add the new feature (with the correct name)
-    }
+    # Merge the existing features with the new ones
+    updated_features = {**existing_features, **new_features_dict}
 
-    # Replace the features in the graph
+    # Replace features in the graph with the updated features
     updated_graph = graph.replace_features(node_sets={"atom": updated_features})
 
     return updated_graph
 
 class GraphUpdateLayer(tf.keras.layers.Layer):
-    def __init__(self, new_feature_name, **kwargs):
+    def __init__(self, feature_names, **kwargs):
         super().__init__(**kwargs)
-        self.new_feature_name = new_feature_name
+        self.feature_names = feature_names  # A list of feature names to add
 
     def call(self, inputs):
-        graph, new_feature = inputs
+        graph = inputs[0]
+        features_to_add = {}
 
-        return update_graph(graph, new_feature, self.new_feature_name)
+        # Loop through the feature names and add the corresponding features
+        for i, feature_name in enumerate(self.feature_names):
+            if feature_name is not None:
+                feature = inputs[i + 1]  # Extract corresponding feature
+                features_to_add[feature_name] = feature
+
+        return update_graph(graph, features_to_add)
     
-class GNNLayer(tf.keras.layers.Layer):
-    def __init__(self, **kwargs):
-        super().__init__(**kwargs)
+    
+def mask_couplings(inputs):
+    shapes, couplings = inputs
+    shapes_decoded = tf.argmax(tf.stop_gradient(shapes), axis=-1)
 
-        self.gnn_layers = [
-                tfgnn.keras.layers.GraphUpdate(
-                    edge_sets={"interatomic_distance": tfgnn.keras.layers.EdgeSetUpdate(
-                        next_state=tfgnn.keras.layers.ResidualNextState(node_updating())
-                    )},
-                    node_sets={"atom": tfgnn.keras.layers.NodeSetUpdate(
-                        {"interatomic_distance": tfgnn.keras.layers.Pool(
-                            reduce_type="mean|sum", 
-                            tag=tfgnn.TARGET)},
-                        next_state=tfgnn.keras.layers.ResidualNextState(edge_updating())
-                    )} 
-            ) for _ in range(3)
-        ]
+    # mask is 0 when shape is s or m (argmax == (0 V 1))
+    mask = tf.cast(tf.logical_not(tf.reduce_any(tf.stack([shapes_decoded == 0, shapes_decoded == 1]), axis=0)), tf.float32)
 
-    def call(self, graph):
-        for gnn_layer in self.gnn_layers:
-            graph = gnn_layer(graph)
-        return graph
+    mask = tf.expand_dims(mask, axis=-1)
+
+    masked_couplings = couplings * mask
+
+    return masked_couplings
+
     
 def _build_shift_submodel(graph_tensor_spec):
     input_graph = tf.keras.layers.Input(type_spec=graph_tensor_spec)
 
-    base_graph = tfgnn.keras.layers.MapFeatures(node_sets_fn=set_initial_node_state, edge_sets_fn=set_initial_edge_state)(input_graph)
+    graph = tfgnn.keras.layers.MapFeatures(node_sets_fn=set_initial_node_state, edge_sets_fn=set_initial_edge_state)(input_graph)
 
-    gnn_layer = GNNLayer(name="gnn")
+    gnn_layers = [
+    tfgnn.keras.layers.GraphUpdate(
+        edge_sets={"interatomic_distance": tfgnn.keras.layers.EdgeSetUpdate(
+            next_state=tfgnn.keras.layers.ResidualNextState(node_updating())
+        )},
+        node_sets={"atom": tfgnn.keras.layers.NodeSetUpdate(
+            {"interatomic_distance": tfgnn.keras.layers.Pool(
+                reduce_type="mean|sum", 
+                tag=tfgnn.TARGET)},
+            next_state=tfgnn.keras.layers.ResidualNextState(edge_updating())
+        )}
+    ) for _ in range(3)
+    ]
 
     ### SHIFT PREDICTION ###
-    graph = gnn_layer(base_graph)
+    for gnn_layer in gnn_layers:
+        graph = gnn_layer(graph)
+
     readout_features = tfgnn.keras.layers.StructuredReadout("hydrogen")(graph)
-    shift_output = readout_layers()(readout_features)
+    shift_output = shift_branch()(readout_features)
 
     return tf.keras.Model(inputs=[input_graph], outputs={"shift": shift_output})
 
 
-def _build_model(graph_tensor_spec):
+def _build_model(graph_tensor_spec, type, mask):
     input_graph = tf.keras.layers.Input(type_spec=graph_tensor_spec)
 
     base_graph = tfgnn.keras.layers.MapFeatures(node_sets_fn=set_initial_node_state, edge_sets_fn=set_initial_edge_state)(input_graph)
 
-    gnn_layer = GNNLayer(name="gnn")
+    gnn_layers = [
+    tfgnn.keras.layers.GraphUpdate(
+        edge_sets={"interatomic_distance": tfgnn.keras.layers.EdgeSetUpdate(
+            next_state=tfgnn.keras.layers.ResidualNextState(node_updating())
+        )},
+        node_sets={"atom": tfgnn.keras.layers.NodeSetUpdate(
+            {"interatomic_distance": tfgnn.keras.layers.Pool(
+                reduce_type="mean|sum", 
+                tag=tfgnn.TARGET)},
+            next_state=tfgnn.keras.layers.ResidualNextState(edge_updating())
+        )}
+    ) for _ in range(3)
+    ]
 
     ### SHIFT PREDICTION ###
-    graph = gnn_layer(base_graph)
+    for gnn_layer in gnn_layers:
+        graph = gnn_layer(base_graph)
+
     readout_features = tfgnn.keras.layers.StructuredReadout("hydrogen")(graph)
-    shift_output = readout_layers()(readout_features)
+    shift_output = shift_branch()(readout_features)
     
-    graph_with_shift = GraphUpdateLayer(new_feature_name="shift")([base_graph, shift_output])
+    graph_with_shift = GraphUpdateLayer(feature_names=["shift"])([base_graph, shift_output])
 
-    ### SHAPE PREDICTION ###
-    graph = gnn_layer(graph_with_shift)
-    graph_output = tfgnn.keras.layers.StructuredReadout("hydrogen")(graph)
-    shape_branch = tf.keras.layers.Dense(128)(graph_output)
-    shape_branch = tf.keras.layers.RepeatVector(4)(shape_branch)
-    shape_branch = tf.keras.layers.GRU(256, return_sequences=True)(shape_branch)
-    shape_branch = tf.keras.layers.GRU(64, return_sequences=True)(shape_branch)
-    shape_branch = tf.keras.layers.GRU(64, return_sequences=True)(shape_branch)
-    shape_branch = tf.keras.layers.Dense(8)(shape_branch)
-    shape_output = tf.keras.layers.Softmax(name="shape")(shape_branch)
+    if type == "separate":
+        ### SHAPE PREDICTION ###
+        for gnn_layer in gnn_layers:
+            graph = gnn_layer(graph_with_shift)
 
-    graph_with_shape = GraphUpdateLayer(new_feature_name="shape")([base_graph, shape_output])
+        graph_output = tfgnn.keras.layers.StructuredReadout("hydrogen")(graph)
+        shape_output = shape_branch()(graph_output)
 
-    ### COUPLING CONSTANT PREDICTION ###
-    graph = gnn_layer(graph_with_shape)
-    graph_output = tfgnn.keras.layers.StructuredReadout("hydrogen")(graph)
-    coupling_branch = tf.keras.layers.Dense(128)(graph_output)
-    coupling_branch = tf.keras.layers.RepeatVector(4)(coupling_branch)
-    coupling_branch = tf.keras.layers.GRU(256, return_sequences=True)(coupling_branch)
-    coupling_branch = tf.keras.layers.GRU(128, return_sequences=True)(coupling_branch)
-    coupling_output = tf.keras.layers.Dense(1, activation="relu", name="coupling_output")(coupling_branch)
-    coupling_output = tf.keras.layers.Lambda(mask_couplings, name="coupling")([shape_output, coupling_output])
+        graph_with_shape = GraphUpdateLayer(feature_names=["shape"])([graph_with_shift, shape_output])
 
+        ### COUPLING CONSTANT PREDICTION ###
+        for gnn_layer in gnn_layers:
+            graph = gnn_layer(graph_with_shape)
+
+        graph_output = tfgnn.keras.layers.StructuredReadout("hydrogen")(graph)
+        coupling_output = coupling_branch()(graph_output)
+
+    elif type == "combined":
+        ### FIRST SHAPE & COUPLING PREDICTION ###
+        for gnn_layer in gnn_layers:
+            graph = gnn_layer(graph_with_shift)
+
+        graph_output = tfgnn.keras.layers.StructuredReadout("hydrogen")(graph)
+        first_shape_output = shape_branch(name="shape_branch")(graph_output)
+        first_coupling_output = coupling_branch(name="coupling_branch_0")(graph_output)
+
+        graph_with_shape_and_coupling = GraphUpdateLayer(feature_names=["shape", "coupling"])([graph_with_shift, first_shape_output, first_coupling_output])
+
+        ### SECOND SHAPE & COUPLING PREDICTION ###
+        for gnn_layer in gnn_layers:
+            graph = gnn_layer(graph_with_shape_and_coupling)
+
+        graph_output = tfgnn.keras.layers.StructuredReadout("hydrogen")(graph)
+        shape_output = shape_branch()(graph_output)
+        coupling_output = coupling_branch(name="coupling_branch_1")(graph_output)
+
+    if mask:
+        coupling_output = tf.keras.layers.Lambda(mask_couplings, name="coupling")([shape_output, coupling_output])
+    else:
+        coupling_output = tf.keras.layers.Lambda(tf.identity, name="coupling")(coupling_output)
+
+    # The combined output is only used for certain metrics
     combined_output = tf.keras.layers.concatenate([shape_output, coupling_output], name="combined")
 
     return tf.keras.Model(inputs=[input_graph], outputs={"shift": shift_output, "shape": shape_output, "coupling": coupling_output, "combined": combined_output})
@@ -252,7 +321,7 @@ class PreprocessingModelShift(tf.keras.Model):
         shift_labels = tfgnn.keras.layers.Readout(node_set_name="_readout",
                                         feature_name="shift")(graph_tensor)
 
-        graph_tensor = graph_tensor.remove_features(node_sets={"_readout": ["shift", "shape", "coupling"]})
+        graph_tensor = graph_tensor.remove_features(node_sets={"_readout": ["shift"]})
 
         labels = {
             "shift": shift_labels
@@ -319,6 +388,86 @@ def count_invalid_couplings(y_true, y_pred):    # A coupling is invalid if a tok
 
     return invalid_count
 
+def objective(trial, train_ds, val_ds):
+    #path = "/home1/s3665828/code/CASCADE/"
+    path = "C:/Users/niels/Documents/repo/CASCADE/"
+    
+    batch_size = 32
+    initial_learning_rate = 5E-4
+    epochs = 250
+    epoch_divisor = 1
+
+    train_path = path + "data/own_data/All/own_train.tfrecords.gzip"
+    val_path = path + "data/own_data/All/own_valid.tfrecords.gzip"
+
+    train_size = 63324
+    valid_size = 13569
+    test_size = 13571
+
+    steps_per_epoch = train_size // batch_size // epoch_divisor
+    validation_steps = valid_size // batch_size // epoch_divisor
+    learning_rate = tf.keras.optimizers.schedules.ExponentialDecay(
+        initial_learning_rate, decay_steps=100000, decay_rate=0.96, staircase=True
+    )
+    
+    graph_schema = tfgnn.read_schema(path + "code/predicting_model/GraphSchemaComplete.pbtxt")
+    example_input_spec = tfgnn.create_graph_spec_from_schema_pb(graph_schema)
+    preproc_input_spec = train_ds.element_spec
+
+    code_path = path + "code/predicting_model/"
+    filepath = code_path + "gnn/models/predicting_model_" + str(trial.number) + "/checkpoint.weights.h5"
+
+    log_dir = code_path + "logs/fit/" + datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
+    tensorboard_callback = tf.keras.callbacks.TensorBoard(log_dir=log_dir, histogram_freq=1)
+    checkpoint = tf.keras.callbacks.ModelCheckpoint(filepath, save_best_only=True, save_freq="epoch", verbose=1, monitor="val_loss", save_weights_only=True)
+
+    preproc_input = tf.keras.layers.Input(type_spec=preproc_input_spec)
+    preproc_model = PreprocessingModel()
+    train_ds = train_ds.map(preproc_model)
+    val_ds = val_ds.map(preproc_model)
+
+    model_input_spec, _ = train_ds.element_spec
+    type = "separate"
+    mask = 0
+    if trial.number == 1:
+        type = "combined"
+    elif trial.number == 2:
+        mask = 1
+    elif trial.number == 3:
+        type = "combined"
+        mask = 1
+
+    model = _build_model(model_input_spec, type, mask)
+    model.load_weights(code_path + "gnn/models/shift_model/shift_pretrained.h5", by_name=True)
+
+    loss = {"shift": tf.keras.losses.MeanAbsoluteError(),
+            "shape": weighted_cce([1.0,0.4,0.15,0.05]),
+            "coupling": tf.keras.losses.MeanAbsoluteError(),
+            "combined": None}
+    metrics = {"shape": [count_invalid_shapes, weighted_cce([1.0,0.4,0.15,0.05])],
+              "combined": [count_invalid_couplings]}
+    loss_weights = {"shift": 1.0,
+                    "shape": 1.0,
+                    "coupling": 1.0}
+    model.compile(tf.keras.optimizers.Adam(learning_rate), loss=loss, metrics=metrics, loss_weights=loss_weights)
+    model.summary()
+    checkpoint = tf.keras.callbacks.ModelCheckpoint(filepath, save_best_only=True, save_freq="epoch", verbose=1, monitor="val_loss", save_weights_only=True)
+    history = model.fit(train_ds, steps_per_epoch=steps_per_epoch, validation_steps=validation_steps, epochs=5, validation_data=val_ds, callbacks=[tensorboard_callback, checkpoint])
+
+    #load best weights before saving
+    model.load_weights(filepath)
+
+    serving_input = tf.keras.layers.Input(shape=[], dtype=tf.string, name="examples")
+    preproc_input = tfgnn.keras.layers.ParseExample(example_input_spec)(serving_input)
+    serving_model_input, _ = preproc_model(preproc_input)
+    serving_logits = model(serving_model_input)
+    serving_output = {"shift": serving_logits["shift"], "shape": serving_logits["shape"], "coupling_constants": serving_logits["coupling"]}
+    exported_model = tf.keras.Model(serving_input, serving_output)
+    exported_model.export(code_path + "gnn/models/predicting_model_" + str(trial.number))
+
+    return min(history.history['val_loss']), min(history.history['val_shift_loss']), min(history.history['val_shape_loss']), min(history.history['val_coupling_loss']), min(history.history['val_shape_count_invalid_shapes']), min(history.history['val_combined_count_invalid_couplings'])
+
+
 if __name__ == "__main__":
     #path = "/home1/s3665828/code/CASCADE/"
     #path = "/home/s3665828/Documents/Masters_Thesis/repo/CASCADE/"
@@ -326,7 +475,6 @@ if __name__ == "__main__":
     
     batch_size = 32
     initial_learning_rate = 5E-4
-    epochs = 500
     epoch_divisor = 1
 
     train_path = path + "data/own_data/All/own_train.tfrecords.gzip"
@@ -344,9 +492,9 @@ if __name__ == "__main__":
 
     train_ds = tf.data.TFRecordDataset([train_path], compression_type="GZIP")
     val_ds = tf.data.TFRecordDataset([val_path], compression_type="GZIP")
-    train_ds = train_ds.batch(batch_size=batch_size).repeat()
+    train_ds = train_ds.shuffle(buffer_size=1000).batch(32).prefetch(tf.data.AUTOTUNE)
     val_ds = val_ds.batch(batch_size=batch_size)
-
+    
     graph_schema = tfgnn.read_schema(path + "code/predicting_model/GraphSchemaComplete.pbtxt")
     example_input_spec = tfgnn.create_graph_spec_from_schema_pb(graph_schema)
     train_ds = train_ds.map(tfgnn.keras.layers.ParseExample(example_input_spec))
@@ -359,61 +507,50 @@ if __name__ == "__main__":
     train_ds_shift = train_ds.map(preproc_submodel)
     val_ds_shift = val_ds.map(preproc_submodel)
 
-    preproc_input = tf.keras.layers.Input(type_spec=preproc_input_spec)
-    preproc_model = PreprocessingModel()
-    train_ds = train_ds.map(preproc_model)
-    val_ds = val_ds.map(preproc_model)
-
     # models
     code_path = path + "code/predicting_model/"
-    filepath = code_path + "gnn/models/test_model/checkpoint.weights.h5"
+    filepath = code_path + "gnn/models/shift_model/checkpoint.weights.h5"
 
     log_dir = code_path + "logs/fit/" + datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
     tensorboard_callback = tf.keras.callbacks.TensorBoard(log_dir=log_dir, histogram_freq=1)
     checkpoint = tf.keras.callbacks.ModelCheckpoint(filepath, save_best_only=True, save_freq="epoch", verbose=1, monitor="val_loss", save_weights_only=True)
 
     # shift submodel
-    model_input_spec, _ = train_ds.element_spec
+    model_input_spec, _ = train_ds_shift.element_spec
     submodel = _build_shift_submodel(model_input_spec)
 
     loss = {"shift": tf.keras.losses.MeanAbsoluteError()}
-    submodel.compile(tf.keras.optimizers.Adam(learning_rate), loss=loss)
+    metrics = [tf.keras.losses.MeanAbsoluteError()]
+    submodel.compile(tf.keras.optimizers.Adam(learning_rate), loss=loss, metrics=metrics)
     submodel.summary()
-    history1 = submodel.fit(train_ds_shift, steps_per_epoch=steps_per_epoch, validation_steps=validation_steps, epochs=20, validation_data=val_ds_shift, callbacks=[tensorboard_callback, checkpoint])
-    submodel.save_weights(code_path + "gnn/models/test_model/shift_pretrained.h5")
 
-    # full model
-    model = _build_model(model_input_spec)
-    model.load_weights(code_path + "gnn/models/test_model/shift_pretrained.h5", by_name=True)
+    history = submodel.fit(train_ds_shift, steps_per_epoch=steps_per_epoch, validation_steps=validation_steps, epochs=20, validation_data=val_ds_shift, callbacks=[tensorboard_callback, checkpoint])
+    submodel.save_weights(code_path + "gnn/models/shift_model/shift_pretrained.h5")
 
-    loss = {"shift": tf.keras.losses.MeanAbsoluteError(),
-            "shape": weighted_cce([1.0,0.4,0.15,0.05]),
-            "coupling": tf.keras.losses.MeanAbsoluteError(),
-            "combined": None}
-    metrics = {"shape": [count_invalid_shapes, weighted_cce([1.0,0.4,0.15,0.05])],
-              "combined": [count_invalid_couplings]}
-    loss_weights = {"shift": 1.0,
-                    "shape": 1.0,
-                    "coupling": 1.0}
-    model.compile(tf.keras.optimizers.Adam(learning_rate), loss=loss, metrics=metrics, loss_weights=loss_weights)
-    model.summary()
-    checkpoint = tf.keras.callbacks.ModelCheckpoint(filepath, save_best_only=True, save_freq="epoch", verbose=1, monitor="val_loss", save_weights_only=True)
-    history2 = model.fit(train_ds, steps_per_epoch=steps_per_epoch, validation_steps=validation_steps, epochs=epochs-20, validation_data=val_ds, callbacks=[tensorboard_callback, checkpoint])
+    study = optuna.create_study(directions=["minimize", "minimize", "minimize", "minimize", "minimize", "minimize"])
+    objective = partial(objective, train_ds=train_ds, val_ds=val_ds)
+    study.optimize(objective, n_trials=4)
 
-    history = {
-    key: history1.history[key] + history2.history[key]
-    for key in history1.history
-    }
+    print("Number of finished trials: ", len(study.trials))
 
-    #load best weights before saving
-    model.load_weights(filepath)
-
-    serving_input = tf.keras.layers.Input(shape=[], dtype=tf.string, name="examples")
-    preproc_input = tfgnn.keras.layers.ParseExample(example_input_spec)(serving_input)
-    serving_model_input, _ = preproc_model(preproc_input)
-    serving_logits = model(serving_model_input)
-    serving_output = {"shifts": serving_logits["shift"], "shape": serving_logits["shape"], "coupling_constants": serving_logits["coupling"]}
-    exported_model = tf.keras.Model(serving_input, serving_output)
-    exported_model.export(code_path + "gnn/models/test_model")
-   
-    #for layer in model.layers: print(layer.get_config(), layer.get_weights())
+    for trial in study.trials:
+        print()
+        print("  Trial: ", trial.number)
+        if trial.number == 0:
+            print("     Type: Separate")
+            print("     Mask: No")
+        elif trial.number == 1:
+            print("     Type: Combined")
+            print("     Mask: No")
+        elif trial.number == 2:
+            print("     Type: Separate")
+            print("     Mask: Yes")
+        elif trial.number == 3:
+            print("     Type: Combined")
+            print("     Mask: Yes")
+        print("     Validation Loss: ", trial.values[0])
+        print("     Shift Loss: ", trial.values[1])
+        print("     Shape Loss: ", trial.values[2])
+        print("     Coupling Loss: ", trial.values[3])
+        print("     Invalid Shapes Loss: ", trial.values[4])
+        print("     Invalid Couplings Loss: ", trial.values[5])
