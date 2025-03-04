@@ -4,6 +4,7 @@ import numpy as np
 import pandas as pd
 from tqdm import tqdm
 from pulp import LpMinimize, LpProblem, LpVariable, lpSum, PULP_CBC_CMD
+import ast
 
 import sys
 from pathlib import Path
@@ -13,7 +14,6 @@ parent_dir = Path(__file__).resolve().parent.parent  # This gets the project roo
 sys.path.append(str(parent_dir))
 
 from predicting_model import create_graph_tensor
-
 
 
 def one_hot_encode_shape(shape):        # The output will be a matrix of four one-hots, where each one-hot encodes for a shape
@@ -280,7 +280,7 @@ def convert_shape_one_hot(one_hot_matrix):
 
     return shape
 
-def evaluate_predicting_model(model, dataset, num_samples, name):
+def create_predicting_model_results(model, dataset, num_samples, name):
     graph_schema = tfgnn.read_schema(path + "code/predicting_model/GraphSchemaComplete.pbtxt")
     graph_spec = tfgnn.create_graph_spec_from_schema_pb(graph_schema)
 
@@ -369,6 +369,97 @@ def evaluate_predicting_model(model, dataset, num_samples, name):
 
     output_df.to_csv(path + "data/own_data/" + str(name) + ".csv.gz", compression='gzip')
 
+def convert_predicted_shapes(s):
+    # Remove all unwanted characters (brackets and unnecessary spaces)
+    s = s.replace('[', '').replace(']', '').strip()
+    
+    # Split the string by spaces and convert them to floats
+    numbers = list(map(float, s.split()))
+    
+    # Reshape the list of numbers into a 4x8 matrix
+    return np.array(numbers).reshape(4, 8)
+
+def convert_couplings(s):
+    # Remove the square brackets and split by space
+    s = s.strip('[]')
+    # Convert the space-separated string elements into a list of floats
+    float_list = list(map(float, s.split()))
+    # Convert the list to a numpy array
+    return np.array(float_list)
+
+def compute_cce(predicted, true):
+    # Flatten both predicted and true arrays
+    predicted_flat = predicted.flatten()
+    true_flat = true.flatten()
+    
+    # Use np.clip to avoid log(0), which is undefined
+    epsilon = 1e-15  # Small epsilon value to prevent log(0)
+    predicted_flat = np.clip(predicted_flat, epsilon, 1 - epsilon)
+    
+    # Calculate Cross-Entropy
+    cce = -np.sum(true_flat * np.log(predicted_flat))
+    return cce
+
+def count_invalid_shapes(predicted_shape):
+    wrong_m_loc = 0
+    non_s_after_s = 0
+    non_s_after_m = 0
+    if "m" in predicted_shape[1:]:
+        wrong_m_loc = 1
+    for i in range(3):
+        if predicted_shape[i] == 's' and predicted_shape[i + 1] != 's':
+            non_s_after_s = 1
+        if predicted_shape[i] == 'm' and predicted_shape[i + 1] != 's':
+            non_s_after_m = 1
+
+    return [wrong_m_loc, non_s_after_s, non_s_after_m]
+
+def count_invalid_couplings(predicted_coupling, predicted_shape):
+    number_of_zeros_needed = predicted_shape.count("m") + predicted_shape.count("s")
+    number_of_zeros = sum(1 for x in predicted_coupling if x == 0.0)
+    if number_of_zeros < number_of_zeros_needed:  # Too many coupling constants
+        return [0, 1]
+    elif number_of_zeros > number_of_zeros_needed: # Too few coupling constants
+        return [1, 0]
+    
+    return [0, 0]
+    
+
+
+def evaluate_predicting_model(results):
+    total = len(results)
+    results["shift_mae"] = np.abs(results["target_shift"] - results["predicted_shift"])
+
+    results["target_shape_one_hot"] = results["target_shape"].apply(one_hot_encode_shape)
+    results["target_shape_one_hot"] = results["target_shape_one_hot"].apply(np.array)
+    results["predicted_shape"] = results["predicted_shape"].apply(convert_predicted_shapes)
+    results["shape_cce"] = results.apply(lambda row: compute_cce(row["predicted_shape"], row["target_shape_one_hot"]), axis=1)
+    results["invalid_shapes"] = results["converted_shape"].apply(count_invalid_shapes)
+
+    results["predicted_coupling"] = results["predicted_coupling"].apply(convert_couplings)
+    results["target_coupling"] = results["target_coupling"].apply(convert_couplings)
+    results["invalid_coupling"] = results.apply(lambda row: count_invalid_couplings(row['predicted_coupling'], row['converted_shape']), axis=1)
+
+    results["coupling_mae"] = np.abs(results["target_coupling"] - results["predicted_coupling"])
+
+    print("Shift MAE: " + str(np.round(np.mean(results["shift_mae"]), 2)))
+    print("Shape CCE (With M): " + str(np.round(np.mean(results["shape_cce"]), 2)))
+    print("Shape CCE (Without M): " + str(np.round(np.mean(results.loc[results["target_shape"] != "msss"]["shift_mae"]), 2)))
+    print("Coupling MAE (With M): " + str(np.round(np.mean(np.mean(results["coupling_mae"])), 2)))
+    print("Coupling MAE (Without M): " + str(np.round(np.mean(np.mean(results.loc[results["target_shape"] != "msss"]["coupling_mae"])), 2)))
+    print()
+    print("INVALID SHAPES")
+    wrong_m_loc, non_s_after_s, non_s_after_m = results["invalid_shapes"].apply(pd.Series).sum(axis=0)
+    print("Wrong M Location: " + str(wrong_m_loc))
+    print("Non-s after s: " + str(non_s_after_s))
+    print("Non-s after m: " + str(non_s_after_m))
+    print()
+    print("INVALID COUPLING CONSTANTS")
+    not_enough, too_many = results["invalid_coupling"].apply(pd.Series).sum(axis=0)
+    print("Not enough coupling constants: " + str(not_enough))
+    print("Too many coupling constants: " + str(too_many))
+    
+
 if __name__ == '__main__':
     #path = "/home/s3665828/Documents/Masters_Thesis/repo/CASCADE/"
     #path = "/home1/s3665828/code/CASCADE/"
@@ -378,13 +469,21 @@ if __name__ == '__main__':
     valid_size = 13569
     test_size = 13571
 
-    dataset = tf.data.TFRecordDataset([path + "data/own_data/All/own_train.tfrecords.gzip"], compression_type="GZIP")
+    print("TRAIN RESULTS")
+    evaluate_predicting_model(pd.read_csv(path + "data/own_data/separate_model_train.csv.gz"))
+    print()
+    print("VALIDATION RESULTS")
+    evaluate_predicting_model(pd.read_csv(path + "data/own_data/separate_model_valid.csv.gz"))
+    print()
+    print("TEST RESULTS")
+    evaluate_predicting_model(pd.read_csv(path + "data/own_data/separate_model_test.csv.gz"))
+    '''dataset = tf.data.TFRecordDataset([path + "data/own_data/All/own_train.tfrecords.gzip"], compression_type="GZIP")
     model = tf.saved_model.load(path + "code/predicting_model/gnn/models/separate_model")
-    evaluate_predicting_model(model, dataset, num_samples=train_size, name="separate_model_train")
+    create_predicting_model_results(model, dataset, num_samples=train_size, name="separate_model_train")
 
     dataset = tf.data.TFRecordDataset([path + "data/own_data/All/own_valid.tfrecords.gzip"], compression_type="GZIP")
-    evaluate_predicting_model(model, dataset, num_samples=valid_size, name="separate_model_valid")
+    create_predicting_model_results(model, dataset, num_samples=valid_size, name="separate_model_valid")
 
     dataset = tf.data.TFRecordDataset([path + "data/own_data/All/own_test.tfrecords.gzip"], compression_type="GZIP")
-    evaluate_predicting_model(model, dataset, num_samples=test_size, name="separate_model_test")
+    create_predicting_model_results(model, dataset, num_samples=test_size, name="separate_model_test")'''
     
