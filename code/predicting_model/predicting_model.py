@@ -492,7 +492,7 @@ if __name__ == "__main__":
 
     train_ds = tf.data.TFRecordDataset([train_path], compression_type="GZIP")
     val_ds = tf.data.TFRecordDataset([val_path], compression_type="GZIP")
-    train_ds = train_ds.shuffle(buffer_size=1000).batch(32).prefetch(tf.data.AUTOTUNE)
+    train_ds = train_ds.shuffle(buffer_size=1000).batch(32).prefetch(tf.data.AUTOTUNE).repeat()
     val_ds = val_ds.batch(batch_size=batch_size)
     
     graph_schema = tfgnn.read_schema(path + "code/predicting_model/GraphSchemaComplete.pbtxt")
