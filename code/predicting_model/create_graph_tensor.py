@@ -272,7 +272,7 @@ def one_hot_encode_atoms(atom_symbols):
             index = 7        
         indices = np.append(indices, index)
 
-    return tf.one_hot(tf.convert_to_tensor(indices), 7)
+    return tf.one_hot(tf.convert_to_tensor(indices), 8)
 
 
 def one_hot_encode_shape(shape_symbols):            # The output will be a matrix of four one-hots, where each one-hot encodes for a shape
