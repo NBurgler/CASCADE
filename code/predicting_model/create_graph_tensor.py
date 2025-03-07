@@ -61,13 +61,16 @@ def create_dictionary(key, path, type, save=False, filepath="", name="", smiles=
             mol_id = sampleSplit[0]
             smiles = sampleSplit[1]
             mol = Chem.MolFromSmiles(smiles)
-            mol_entry, atom_entry, bond_entry, distance_entry, bad_mols = fill_dictionary(key, mol_id, mol, shift_data=sampleSplit, bad_mols=bad_mols)
+            mol_entry, atom_entry, bond_entry, distance_entry, bad_mol = fill_dictionary(key, mol_id, mol, shift_data=sampleSplit)
             if mol_entry == None:
-                    continue
+                print(bad_mol)
+                bad_mols.extend(bad_mol)
+                continue
             mol_list.extend(mol_entry)
             atom_list.extend(atom_entry)
             bond_list.extend(bond_entry)
             distance_list.extend(distance_entry)
+            
 
     elif key == 1:    # DFT data
         with gzip.open(path + "data/DFT8K/DFT.sdf.gz", 'rb') as dft:
@@ -77,8 +80,9 @@ def create_dictionary(key, path, type, save=False, filepath="", name="", smiles=
             for mol in mol_suppl:
                 mol_id = int(mol.GetProp("_Name"))
                 mol.UpdatePropertyCache()
-                mol_entry, atom_entry, bond_entry, distance_entry, bad_mols = fill_dictionary(key, mol_id, mol, shift_data=shift_df)
+                mol_entry, atom_entry, bond_entry, distance_entry, bad_mol = fill_dictionary(key, mol_id, mol, shift_data=shift_df)
                 if mol_entry == None:
+                    bad_mols.extend(bad_mol)
                     continue
                 mol_list.extend(mol_entry)
                 atom_list.extend(atom_entry)
@@ -87,7 +91,7 @@ def create_dictionary(key, path, type, save=False, filepath="", name="", smiles=
 
     elif key == 2:  # single molecule
         mol = Chem.MolFromSmiles(smiles)
-        mol_entry, atom_entry, bond_entry, distance_entry, bad_mols = fill_dictionary(key, 0, mol)
+        mol_entry, atom_entry, bond_entry, distance_entry, bad_mol = fill_dictionary(key, 0, mol)
         if mol_entry == None:
             return None, None, None, None
         mol_list.extend(mol_entry)
@@ -126,6 +130,8 @@ def create_dictionary(key, path, type, save=False, filepath="", name="", smiles=
         bond_df.to_csv(path + "code/predicting_model/" + type + "/" + name + "_bond.csv.gz", compression='gzip')
         distance_df.to_csv(path + "code/predicting_model/" + type + "/" + name + "_distance.csv.gz", compression='gzip')
 
+    print(bad_mols)
+
     return mol_df, atom_df, bond_df, distance_df
 
 def average_distance_matrix(mol, numConfs):
@@ -136,7 +142,7 @@ def average_distance_matrix(mol, numConfs):
     return (distance_matrix/numConfs)
     
 
-def fill_dictionary(key, mol_id, mol, shift_data="", bad_mols=[]):
+def fill_dictionary(key, mol_id, mol, shift_data=""):
     cutoff_distance = 5
     numConfs = 1000
 
@@ -171,12 +177,12 @@ def fill_dictionary(key, mol_id, mol, shift_data="", bad_mols=[]):
             distance_matrix = average_distance_matrix(mol, numConfs)
         except ValueError:
             bad_mol = Chem.RemoveHs(mol)
+            bad_mol = Chem.MolToSmiles(bad_mol)
             print("UNABLE TO FIND EMBEDDING")
             print("mol_id: " + str(mol_id))
-            print("smiles: " + str(Chem.MolToSmiles(bad_mol)))
+            print("smiles: " + str(bad_mol))
             distance_matrix = np.zeros((n_atoms, n_atoms))
-            bad_mols.append(mol_id)
-            return None, None, None, None, None
+            return None, None, None, None, bad_mol
 
         iter_H = 0
 
@@ -248,7 +254,7 @@ def fill_dictionary(key, mol_id, mol, shift_data="", bad_mols=[]):
 
             bond_list.append(bond_dict)
 
-    return mol_list, atom_list, bond_list, distance_list, bad_mols
+    return mol_list, atom_list, bond_list, distance_list, None
     
 
 def one_hot_encode_atoms(atom_symbols):
@@ -768,7 +774,7 @@ def process_samples(key, path, type="Shift", save=False, file="", name="", smile
     # key 1 = process DFT data (sdf + csv)
     # key 2 = process single sample (smiles)
     if (key == 0):
-        #create_dictionary(key, path, type, save, file, name)
+        create_dictionary(key, path, type, save, file, name)
         create_tensors(path, name, type)
     elif(key == 1):
         create_dictionary(key, path, type="Shift", save=save, name="DFT") 
@@ -783,4 +789,4 @@ if __name__ == "__main__":
     #path = "/home/s3665828/Documents/Masters_Thesis/repo/CASCADE/"
     path = "C:/Users/niels/Documents/repo/CASCADE/"
     #create_tensors_from_predictions(path)
-    process_samples(0, path, file="data/own_data/own_data_with_id.txt", save=True, name="own", type="All")
+    process_samples(0, path, file="data/own_data/test.txt", save=True, name="test", type="All")

@@ -47,7 +47,6 @@ def set_initial_node_state(node_set, *, node_set_name):
     integer_inputs = tf.cast(tf.keras.layers.Concatenate()([node_set["degree"], node_set["formal_charge"], node_set["is_aromatic"], 
                                                    node_set["no_implicit"], node_set["num_Hs"], node_set["valence"]]), tf.float32)
     
-
     # concatenate the embeddings
     concatenated_inputs = tf.keras.layers.Concatenate()([one_hot_inputs, integer_inputs])
     #concatenated_embedding = tf.keras.backend.print_tensor(concatenated_embedding)
@@ -215,7 +214,7 @@ def _build_shift_submodel(graph_tensor_spec):
     return tf.keras.Model(inputs=[input_graph], outputs={"shift": shift_output})
 
 
-def _build_model(graph_tensor_spec, type, mask):
+def _build_separate_model(graph_tensor_spec, type, mask):
     input_graph = tf.keras.layers.Input(type_spec=graph_tensor_spec)
 
     base_graph = tfgnn.keras.layers.MapFeatures(node_sets_fn=set_initial_node_state, edge_sets_fn=set_initial_edge_state)(input_graph)
@@ -243,41 +242,21 @@ def _build_model(graph_tensor_spec, type, mask):
     
     graph_with_shift = GraphUpdateLayer(feature_names=["shift"])([base_graph, shift_output])
 
-    if type == "separate":
-        ### SHAPE PREDICTION ###
-        for gnn_layer in gnn_layers:
-            graph = gnn_layer(graph_with_shift)
+    ### SHAPE PREDICTION ###
+    for gnn_layer in gnn_layers:
+        graph = gnn_layer(graph_with_shift)
 
-        graph_output = tfgnn.keras.layers.StructuredReadout("hydrogen")(graph)
-        shape_output = shape_branch()(graph_output)
+    graph_output = tfgnn.keras.layers.StructuredReadout("hydrogen")(graph)
+    shape_output = shape_branch()(graph_output)
 
-        graph_with_shape = GraphUpdateLayer(feature_names=["shape"])([graph_with_shift, shape_output])
+    graph_with_shape = GraphUpdateLayer(feature_names=["shape"])([graph_with_shift, shape_output])
 
-        ### COUPLING CONSTANT PREDICTION ###
-        for gnn_layer in gnn_layers:
-            graph = gnn_layer(graph_with_shape)
+    ### COUPLING CONSTANT PREDICTION ###
+    for gnn_layer in gnn_layers:
+        graph = gnn_layer(graph_with_shape)
 
-        graph_output = tfgnn.keras.layers.StructuredReadout("hydrogen")(graph)
-        coupling_output = coupling_branch()(graph_output)
-
-    elif type == "combined":
-        ### FIRST SHAPE & COUPLING PREDICTION ###
-        for gnn_layer in gnn_layers:
-            graph = gnn_layer(graph_with_shift)
-
-        graph_output = tfgnn.keras.layers.StructuredReadout("hydrogen")(graph)
-        first_shape_output = shape_branch(name="shape_branch")(graph_output)
-        first_coupling_output = coupling_branch(name="coupling_branch_0")(graph_output)
-
-        graph_with_shape_and_coupling = GraphUpdateLayer(feature_names=["shape", "coupling"])([graph_with_shift, first_shape_output, first_coupling_output])
-
-        ### SECOND SHAPE & COUPLING PREDICTION ###
-        for gnn_layer in gnn_layers:
-            graph = gnn_layer(graph_with_shape_and_coupling)
-
-        graph_output = tfgnn.keras.layers.StructuredReadout("hydrogen")(graph)
-        shape_output = shape_branch()(graph_output)
-        coupling_output = coupling_branch(name="coupling_branch_1")(graph_output)
+    graph_output = tfgnn.keras.layers.StructuredReadout("hydrogen")(graph)
+    coupling_output = coupling_branch()(graph_output)
 
     if mask:
         coupling_output = tf.keras.layers.Lambda(mask_couplings, name="coupling")([shape_output, coupling_output])
@@ -289,8 +268,64 @@ def _build_model(graph_tensor_spec, type, mask):
 
     return tf.keras.Model(inputs=[input_graph], outputs={"shift": shift_output, "shape": shape_output, "coupling": coupling_output, "combined": combined_output})
 
+def _build_combined_model(graph_tensor_spec, type, mask):
+    input_graph = tf.keras.layers.Input(type_spec=graph_tensor_spec)
 
-class PreprocessingModel(tf.keras.Model):
+    base_graph = tfgnn.keras.layers.MapFeatures(node_sets_fn=set_initial_node_state, edge_sets_fn=set_initial_edge_state)(input_graph)
+
+    gnn_layers = [
+    tfgnn.keras.layers.GraphUpdate(
+        edge_sets={"interatomic_distance": tfgnn.keras.layers.EdgeSetUpdate(
+            next_state=tfgnn.keras.layers.ResidualNextState(node_updating())
+        )},
+        node_sets={"atom": tfgnn.keras.layers.NodeSetUpdate(
+            {"interatomic_distance": tfgnn.keras.layers.Pool(
+                reduce_type="mean|sum", 
+                tag=tfgnn.TARGET)},
+            next_state=tfgnn.keras.layers.ResidualNextState(edge_updating())
+        )}
+    ) for _ in range(3)
+    ]
+
+    ### SHIFT PREDICTION ###
+    for gnn_layer in gnn_layers:
+        graph = gnn_layer(base_graph)
+
+    readout_features = tfgnn.keras.layers.StructuredReadout("hydrogen")(graph)
+    shift_output = shift_branch()(readout_features)
+    
+    graph_with_shift = GraphUpdateLayer(feature_names=["shift"])([base_graph, shift_output])
+
+    ### FIRST SHAPE & COUPLING PREDICTION ###
+    for gnn_layer in gnn_layers:
+        graph = gnn_layer(graph_with_shift)
+
+    graph_output = tfgnn.keras.layers.StructuredReadout("hydrogen")(graph)
+    intermediate_shape_output = shape_branch(name="shape_branch")(graph_output)
+    intermediate_coupling_output = coupling_branch(name="coupling_branch_0")(graph_output)
+
+    graph_with_shape_and_coupling = GraphUpdateLayer(feature_names=["shape", "coupling"])([graph_with_shift, intermediate_shape_output, intermediate_coupling_output])
+
+    ### SECOND SHAPE & COUPLING PREDICTION ###
+    for gnn_layer in gnn_layers:
+        graph = gnn_layer(graph_with_shape_and_coupling)
+
+    graph_output = tfgnn.keras.layers.StructuredReadout("hydrogen")(graph)
+    shape_output = shape_branch()(graph_output)
+    coupling_output = coupling_branch(name="coupling_branch_1")(graph_output)
+
+    if mask:
+        coupling_output = tf.keras.layers.Lambda(mask_couplings, name="coupling")([shape_output, coupling_output])
+    else:
+        coupling_output = tf.keras.layers.Lambda(tf.identity, name="coupling")(coupling_output)
+
+    # The combined output is only used for certain metrics
+    combined_output = tf.keras.layers.concatenate([shape_output, coupling_output], name="combined")
+
+    return tf.keras.Model(inputs=[input_graph], outputs={"shift": shift_output, "shape": shape_output, "coupling": coupling_output, "combined": combined_output, "intermediate_shape": intermediate_shape_output, "intermediate_coupling": intermediate_coupling_output})
+
+
+class PreprocessingSeparateModel(tf.keras.Model):
     def call(self, inputs):
         graph_tensor = inputs.merge_batch_to_components()
 
@@ -310,6 +345,32 @@ class PreprocessingModel(tf.keras.Model):
             "shape": shape_labels,
             "coupling": coupling_labels,
             "combined": dummy_labels
+        }
+
+        return graph_tensor, labels
+    
+class PreprocessingCombinedModel(tf.keras.Model):
+    def call(self, inputs):
+        graph_tensor = inputs.merge_batch_to_components()
+
+        shift_labels = tfgnn.keras.layers.Readout(node_set_name="_readout",
+                                        feature_name="shift")(graph_tensor)
+        shape_labels = tfgnn.keras.layers.Readout(node_set_name="_readout",
+                                        feature_name="shape")(graph_tensor)
+        coupling_labels = tfgnn.keras.layers.Readout(node_set_name="_readout",
+                                        feature_name="coupling")(graph_tensor)
+        
+        dummy_labels = tf.fill([tf.shape(coupling_labels)[0]], tf.constant(float('nan'), dtype=coupling_labels.dtype))
+
+        graph_tensor = graph_tensor.remove_features(node_sets={"_readout": ["shift", "shape", "coupling"]})
+
+        labels = {
+            "shift": shift_labels,
+            "shape": shape_labels,
+            "coupling": coupling_labels,
+            "combined": dummy_labels,
+            "intermediate_shape": shape_labels,
+            "intermediate_coupling": coupling_labels
         }
 
         return graph_tensor, labels
@@ -421,13 +482,7 @@ def objective(trial, train_ds, val_ds):
     tensorboard_callback = tf.keras.callbacks.TensorBoard(log_dir=log_dir, histogram_freq=1)
     checkpoint = tf.keras.callbacks.ModelCheckpoint(filepath, save_best_only=True, save_freq="epoch", verbose=1, monitor="val_loss", save_weights_only=True)
 
-    preproc_input = tf.keras.layers.Input(type_spec=preproc_input_spec)
-    preproc_model = PreprocessingModel()
-    train_ds = train_ds.map(preproc_model)
-    val_ds = val_ds.map(preproc_model)
-
-    model_input_spec, _ = train_ds.element_spec
-    type = "separate"
+    type = "separate "
     mask = 0
     if trial.number == 1:
         type = "combined"
@@ -437,20 +492,43 @@ def objective(trial, train_ds, val_ds):
         type = "combined"
         mask = 1
 
-    model = _build_model(model_input_spec, type, mask)
-    model.load_weights(code_path + "gnn/models/shift_model/shift_pretrained.h5", by_name=True)
+    preproc_input = tf.keras.layers.Input(type_spec=preproc_input_spec)
+    if type == "separate":
+        preproc_model = PreprocessingSeparateModel()
+    elif type == "combined":
+        preproc_model = PreprocessingCombinedModel()
 
-    loss = {"shift": tf.keras.losses.MeanAbsoluteError(),
-            "shape": weighted_cce([1.0,0.4,0.15,0.05]),
-            "coupling": tf.keras.losses.MeanAbsoluteError(),
-            "combined": None}
+    train_ds = train_ds.map(preproc_model)
+    val_ds = val_ds.map(preproc_model)
+
+    model_input_spec, _ = train_ds.element_spec
+
+    if type == "separate":
+        model = _build_separate_model(model_input_spec, type, mask)
+    elif type == "combined":
+        model = _build_combined_model(model_input_spec, type, mask)
+
+    model.load_weights(code_path + "gnn/models/shift_model/shift_pretrained.h5", by_name=True)
+    if type == "separate":
+        loss = {"shift": tf.keras.losses.MeanAbsoluteError(),
+                "shape": weighted_cce([1.0,0.4,0.15,0.05]),
+                "coupling": tf.keras.losses.MeanAbsoluteError(),
+                "combined": None}
+    elif type == "combined":
+        loss = {"shift": tf.keras.losses.MeanAbsoluteError(),
+                "shape": weighted_cce([1.0,0.4,0.15,0.05]),
+                "coupling": tf.keras.losses.MeanAbsoluteError(),
+                "combined": None,
+                "intermediate_shape": weighted_cce([1.0,0.4,0.15,0.05]),
+                "intermediate_coupling": tf.keras.losses.MeanAbsoluteError()}
+        
     metrics = {"shape": [count_invalid_shapes, weighted_cce([1.0,0.4,0.15,0.05])],
               "combined": [count_invalid_couplings]}
     loss_weights = {"shift": 1.0,
                     "shape": 1.0,
                     "coupling": 1.0}
     model.compile(tf.keras.optimizers.Adam(learning_rate), loss=loss, metrics=metrics, loss_weights=loss_weights)
-    model.summary()
+    model.summary(expand_nested=True)
     checkpoint = tf.keras.callbacks.ModelCheckpoint(filepath, save_best_only=True, save_freq="epoch", verbose=1, monitor="val_loss", save_weights_only=True)
     history = model.fit(train_ds, steps_per_epoch=steps_per_epoch, validation_steps=validation_steps, epochs=5, validation_data=val_ds, callbacks=[tensorboard_callback, checkpoint])
 
