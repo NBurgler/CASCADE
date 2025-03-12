@@ -36,20 +36,20 @@ def parse_example(serialized_example):
 def _build_embedding_model():
     # Shift input
     shift_input = tf.keras.layers.Input(shape=(1,), name="shift")
-    shift_dense = tf.keras.layers.Dense(16, activation="relu")(shift_input)
+    shift_dense = tf.keras.layers.Dense(16)(shift_input)
 
     # Shape input (4 one-hot vectors)
     shape_input = tf.keras.layers.Input(shape=(4, 8), name="shape")
     shape_flat = tf.keras.layers.Flatten()(shape_input)
-    shape_dense = tf.keras.layers.Dense(32, activation="relu")(shape_flat)
+    shape_dense = tf.keras.layers.Dense(32)(shape_flat)
 
     # Coupling constants input
     coupling_input = tf.keras.layers.Input(shape=(4,), name="coupling")
-    coupling_dense = tf.keras.layers.Dense(16, activation="relu")(coupling_input)
+    coupling_dense = tf.keras.layers.Dense(16)(coupling_input)
 
     # Combine all features
     combined = tf.keras.layers.Concatenate()([shift_dense, shape_dense, coupling_dense])
-    embedding = tf.keras.layers.Dense(64, activation="relu", name="embedding")(combined)
+    embedding = tf.keras.layers.Dense(64, name="embedding")(combined)
 
     return tf.keras.Model(inputs=[shift_input, shape_input, coupling_input], outputs=embedding, name="embedding_model")
 

@@ -88,7 +88,6 @@ def edge_updating():
         dense(256, activation="relu"),
         dense(256, activation="relu")])
 
-
 def node_updating():
     return tf.keras.Sequential([
         dense(256),
@@ -119,7 +118,7 @@ def coupling_branch(name="coupling_branch"):
         tf.keras.layers.RepeatVector(4),
         tf.keras.layers.GRU(256, return_sequences=True),
         tf.keras.layers.GRU(128, return_sequences=True),
-        tf.keras.layers.Dense(1, activation="relu")
+        tf.keras.layers.Dense(1)
     ], name=name)
 
 
@@ -193,13 +192,13 @@ def _build_shift_submodel(graph_tensor_spec):
     gnn_layers = [
     tfgnn.keras.layers.GraphUpdate(
         edge_sets={"interatomic_distance": tfgnn.keras.layers.EdgeSetUpdate(
-            next_state=tfgnn.keras.layers.ResidualNextState(node_updating())
+            next_state=tfgnn.keras.layers.ResidualNextState(edge_updating())
         )},
         node_sets={"atom": tfgnn.keras.layers.NodeSetUpdate(
             {"interatomic_distance": tfgnn.keras.layers.Pool(
-                reduce_type="mean|sum", 
+                reduce_type="sum", 
                 tag=tfgnn.TARGET)},
-            next_state=tfgnn.keras.layers.ResidualNextState(edge_updating())
+            next_state=tfgnn.keras.layers.ResidualNextState(node_updating())
         )}
     ) for _ in range(3)
     ]
@@ -222,13 +221,13 @@ def _build_separate_model(graph_tensor_spec, type, mask):
     gnn_layers = [
     tfgnn.keras.layers.GraphUpdate(
         edge_sets={"interatomic_distance": tfgnn.keras.layers.EdgeSetUpdate(
-            next_state=tfgnn.keras.layers.ResidualNextState(node_updating())
+            next_state=tfgnn.keras.layers.ResidualNextState(edge_updating())
         )},
         node_sets={"atom": tfgnn.keras.layers.NodeSetUpdate(
             {"interatomic_distance": tfgnn.keras.layers.Pool(
-                reduce_type="mean|sum", 
+                reduce_type="sum", 
                 tag=tfgnn.TARGET)},
-            next_state=tfgnn.keras.layers.ResidualNextState(edge_updating())
+            next_state=tfgnn.keras.layers.ResidualNextState(node_updating())
         )}
     ) for _ in range(3)
     ]
@@ -276,13 +275,13 @@ def _build_combined_model(graph_tensor_spec, type, mask):
     gnn_layers = [
     tfgnn.keras.layers.GraphUpdate(
         edge_sets={"interatomic_distance": tfgnn.keras.layers.EdgeSetUpdate(
-            next_state=tfgnn.keras.layers.ResidualNextState(node_updating())
+            next_state=tfgnn.keras.layers.ResidualNextState(edge_updating())
         )},
         node_sets={"atom": tfgnn.keras.layers.NodeSetUpdate(
             {"interatomic_distance": tfgnn.keras.layers.Pool(
-                reduce_type="mean|sum", 
+                reduce_type="sum", 
                 tag=tfgnn.TARGET)},
-            next_state=tfgnn.keras.layers.ResidualNextState(edge_updating())
+            next_state=tfgnn.keras.layers.ResidualNextState(node_updating())
         )}
     ) for _ in range(3)
     ]
@@ -456,7 +455,7 @@ def objective(trial, train_ds, val_ds):
     batch_size = 32
     initial_learning_rate = 5E-4
     epochs = 250
-    epoch_divisor = 1
+    epoch_divisor = 100
 
     train_path = path + "data/own_data/All/own_train.tfrecords.gzip"
     val_path = path + "data/own_data/All/own_valid.tfrecords.gzip"
@@ -482,7 +481,7 @@ def objective(trial, train_ds, val_ds):
     tensorboard_callback = tf.keras.callbacks.TensorBoard(log_dir=log_dir, histogram_freq=1)
     checkpoint = tf.keras.callbacks.ModelCheckpoint(filepath, save_best_only=True, save_freq="epoch", verbose=1, monitor="val_loss", save_weights_only=True)
 
-    type = "separate "
+    type = "separate"
     mask = 0
     if trial.number == 1:
         type = "combined"
@@ -553,7 +552,7 @@ if __name__ == "__main__":
     
     batch_size = 32
     initial_learning_rate = 5E-4
-    epoch_divisor = 1
+    epoch_divisor = 100
 
     train_path = path + "data/own_data/All/own_train.tfrecords.gzip"
     val_path = path + "data/own_data/All/own_valid.tfrecords.gzip"
