@@ -103,22 +103,21 @@ def shift_branch(name="shift"):
 
 def shape_branch(name="shape"):
     return tf.keras.Sequential([
-        tf.keras.layers.Dense(128),
+        tf.keras.layers.Dense(128, activation="relu"),
         tf.keras.layers.RepeatVector(4),
         tf.keras.layers.GRU(256, return_sequences=True),
         tf.keras.layers.GRU(64, return_sequences=True),
         tf.keras.layers.GRU(64, return_sequences=True),
-        tf.keras.layers.Dense(8),
-        tf.keras.layers.Softmax()
+        tf.keras.layers.Dense(8, activation="softmax"),
     ], name=name)
 
 def coupling_branch(name="coupling_branch"):
     return tf.keras.Sequential([
-        tf.keras.layers.Dense(128),
+        tf.keras.layers.Dense(128, activation="relu"),
         tf.keras.layers.RepeatVector(4),
         tf.keras.layers.GRU(256, return_sequences=True),
-        tf.keras.layers.GRU(128, return_sequences=True),
-        tf.keras.layers.Dense(1)
+        tf.keras.layers.GRU(128, return_sequences=False),
+        tf.keras.layers.Dense(4, activation="relu")
     ], name=name)
 
 
@@ -256,6 +255,7 @@ def _build_separate_model(graph_tensor_spec, type, mask):
 
     graph_output = tfgnn.keras.layers.StructuredReadout("hydrogen")(graph)
     coupling_output = coupling_branch()(graph_output)
+    coupling_output = tf.expand_dims(coupling_output, axis=-1)
 
     if mask:
         coupling_output = tf.keras.layers.Lambda(mask_couplings, name="coupling")([shape_output, coupling_output])
@@ -312,6 +312,7 @@ def _build_combined_model(graph_tensor_spec, type, mask):
     graph_output = tfgnn.keras.layers.StructuredReadout("hydrogen")(graph)
     shape_output = shape_branch()(graph_output)
     coupling_output = coupling_branch(name="coupling_branch_1")(graph_output)
+    coupling_output = tf.expand_dims(coupling_output, axis=-1)
 
     if mask:
         coupling_output = tf.keras.layers.Lambda(mask_couplings, name="coupling")([shape_output, coupling_output])
@@ -455,7 +456,7 @@ def objective(trial, train_ds, val_ds):
     batch_size = 32
     initial_learning_rate = 5E-4
     epochs = 250
-    epoch_divisor = 100
+    epoch_divisor = 1
 
     train_path = path + "data/own_data/All/own_train.tfrecords.gzip"
     val_path = path + "data/own_data/All/own_valid.tfrecords.gzip"
@@ -513,6 +514,9 @@ def objective(trial, train_ds, val_ds):
                 "shape": weighted_cce([1.0,0.4,0.15,0.05]),
                 "coupling": tf.keras.losses.MeanAbsoluteError(),
                 "combined": None}
+        loss_weights = {"shift": 1.0,
+                    "shape": 1.0,
+                    "coupling": 1.0}
     elif type == "combined":
         loss = {"shift": tf.keras.losses.MeanAbsoluteError(),
                 "shape": weighted_cce([1.0,0.4,0.15,0.05]),
@@ -520,16 +524,19 @@ def objective(trial, train_ds, val_ds):
                 "combined": None,
                 "intermediate_shape": weighted_cce([1.0,0.4,0.15,0.05]),
                 "intermediate_coupling": tf.keras.losses.MeanAbsoluteError()}
+        loss_weights = {"shift": 1.0,
+                        "shape": 1.0,
+                        "coupling": 1.0,
+                        "intermediate_shape": 0.0,
+                        "intermediate_coupling": 0.0}
         
     metrics = {"shape": [count_invalid_shapes, weighted_cce([1.0,0.4,0.15,0.05])],
               "combined": [count_invalid_couplings]}
-    loss_weights = {"shift": 1.0,
-                    "shape": 1.0,
-                    "coupling": 1.0}
+    
     model.compile(tf.keras.optimizers.Adam(learning_rate), loss=loss, metrics=metrics, loss_weights=loss_weights)
     model.summary(expand_nested=True)
     checkpoint = tf.keras.callbacks.ModelCheckpoint(filepath, save_best_only=True, save_freq="epoch", verbose=1, monitor="val_loss", save_weights_only=True)
-    history = model.fit(train_ds, steps_per_epoch=steps_per_epoch, validation_steps=validation_steps, epochs=5, validation_data=val_ds, callbacks=[tensorboard_callback, checkpoint])
+    history = model.fit(train_ds, steps_per_epoch=steps_per_epoch, validation_steps=validation_steps, epochs=epochs, validation_data=val_ds, callbacks=[tensorboard_callback, checkpoint])
 
     #load best weights before saving
     model.load_weights(filepath)
@@ -552,7 +559,7 @@ if __name__ == "__main__":
     
     batch_size = 32
     initial_learning_rate = 5E-4
-    epoch_divisor = 100
+    epoch_divisor = 1
 
     train_path = path + "data/own_data/All/own_train.tfrecords.gzip"
     val_path = path + "data/own_data/All/own_valid.tfrecords.gzip"
