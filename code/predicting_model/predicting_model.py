@@ -116,8 +116,8 @@ def coupling_branch(name="coupling_branch"):
         tf.keras.layers.Dense(128, activation="relu"),
         tf.keras.layers.RepeatVector(4),
         tf.keras.layers.GRU(256, return_sequences=True),
-        tf.keras.layers.GRU(128, return_sequences=False),
-        tf.keras.layers.Dense(4, activation="relu")
+        tf.keras.layers.GRU(128, return_sequences=True),
+        tf.keras.layers.Dense(1, activation="relu")
     ], name=name)
 
 
@@ -255,7 +255,6 @@ def _build_separate_model(graph_tensor_spec, type, mask):
 
     graph_output = tfgnn.keras.layers.StructuredReadout("hydrogen")(graph)
     coupling_output = coupling_branch()(graph_output)
-    coupling_output = tf.expand_dims(coupling_output, axis=-1)
 
     if mask:
         coupling_output = tf.keras.layers.Lambda(mask_couplings, name="coupling")([shape_output, coupling_output])
@@ -312,7 +311,6 @@ def _build_combined_model(graph_tensor_spec, type, mask):
     graph_output = tfgnn.keras.layers.StructuredReadout("hydrogen")(graph)
     shape_output = shape_branch()(graph_output)
     coupling_output = coupling_branch(name="coupling_branch_1")(graph_output)
-    coupling_output = tf.expand_dims(coupling_output, axis=-1)
 
     if mask:
         coupling_output = tf.keras.layers.Lambda(mask_couplings, name="coupling")([shape_output, coupling_output])
@@ -482,7 +480,7 @@ def objective(trial, train_ds, val_ds):
     tensorboard_callback = tf.keras.callbacks.TensorBoard(log_dir=log_dir, histogram_freq=1)
     checkpoint = tf.keras.callbacks.ModelCheckpoint(filepath, save_best_only=True, save_freq="epoch", verbose=1, monitor="val_loss", save_weights_only=True)
 
-    type = "separate"
+    type = "combined"
     mask = 0
     if trial.number == 1:
         type = "combined"
