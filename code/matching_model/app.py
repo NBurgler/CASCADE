@@ -12,6 +12,7 @@ from rdkit.Chem import Draw
 from io import BytesIO
 from PIL import Image
 import math
+import base64
 
 import sys
 from pathlib import Path
@@ -63,9 +64,12 @@ def draw_mol_image(smiles, color_per_idx):
     def hex_to_rgb(hex_color):
         return matplotlib.colors.hex2color(hex_color)
     
-    atom_colors = {int(index): hex_to_rgb(color) for index, color in color_per_idx}
+    if color_per_idx != None:
+        atom_colors = {int(index): hex_to_rgb(color) for index, color in color_per_idx}
+        Draw.rdMolDraw2D.PrepareAndDrawMolecule(d, mol, highlightAtoms=list(atom_colors.keys()), highlightAtomColors=atom_colors)
+    else:
+        Draw.rdMolDraw2D.PrepareAndDrawMolecule(d, mol)
 
-    Draw.rdMolDraw2D.PrepareAndDrawMolecule(d, mol, highlightAtoms=list(atom_colors.keys()), highlightAtomColors=atom_colors)
     d.FinishDrawing()
     png_data = d.GetDrawingText()
 
@@ -99,6 +103,17 @@ def assign_random_colors(n):
     hex_colors = [matplotlib.colors.rgb2hex(color[:3]) for color in colors]
     return hex_colors
 
+def fig_to_base64(fig):
+    img_bytes = BytesIO()
+    fig.savefig(img_bytes, format="png", bbox_inches="tight")
+    img_bytes.seek(0)  # Reset buffer
+    
+    # Convert to Base64 string
+    img_base64 = base64.b64encode(img_bytes.read()).decode()
+    
+    return f"data:image/png;base64,{img_base64}"
+
+############################################################
 st.set_page_config(layout="wide")
 
 # Title of the app
@@ -219,10 +234,16 @@ with col2:
     if "atom_idx" not in st.session_state:
         st.session_state.atom_idx = []
 
-    smiles = st.text_input("Enter a smiles:", value="C#CCC1CCOCO1")
+    if "memory_df" not in st.session_state:
+        st.session_state.memory_df = pd.DataFrame()
+
+    smiles = st.text_input("Enter a smiles:")
 
     if "molecule_image" not in st.session_state:
         st.session_state.molecule_image = None
+
+    if "img_base64" not in st.session_state:
+        st.session_state.img_base64 = None
 
     if st.session_state.selected != []:
         colored_df = st.session_state.observed_peaks_df.copy()
@@ -230,49 +251,60 @@ with col2:
         colored_df["color"] = assign_random_colors(len(colored_df))
         st.session_state.colors_in_order = colored_df["color"].values
 
-        styled_df = colored_df.style.apply(highlight_row, axis=1)
+        st.session_state.matching_table = colored_df.style.apply(highlight_row, axis=1)
 
         color_per_idx = [(st.session_state.atom_idx[pred_idx], st.session_state.colors_in_order[obs_idx]) for (pred_idx, obs_idx) in st.session_state.selected]
         st.session_state.molecule_image = draw_mol_image(smiles, color_per_idx)
 
-    if st.button("Submit Smiles"):
-        color_per_idx = [(st.session_state.atom_idx[pred_idx], st.session_state.colors_in_order[obs_idx]) for (pred_idx, obs_idx) in st.session_state.selected]
-        st.session_state.molecule_image = draw_mol_image(smiles, color_per_idx)
-        st.session_state.selected = []
+    subcol_1, subcol_2 = st.columns(2)
+
+    with subcol_1:
+        if st.button("Submit Smiles"):
+            color_per_idx = None
+            st.session_state.molecule_image = draw_mol_image(smiles, color_per_idx)
+    
+    with subcol_2:
+        if st.button("Reset Predictions"):
+            st.session_state.predicted_peaks = None
+            st.session_state.predicted_peak_table = None
+            st.session_state.distance_matrix = np.empty((0))
+            st.session_state.distance_matrix_df = pd.DataFrame()
+            st.session_state.total_cost = None
+            st.session_state.selected = []
+            st.session_state.colors_in_order = []
+            color_per_idx = None
+            st.session_state.molecule_image = draw_mol_image(smiles, color_per_idx)
+            
+
 
     if st.session_state.molecule_image:
         st.write("Molecule:")
         st.pyplot(st.session_state.molecule_image)
+        st.session_state.img_base64 = fig_to_base64(st.session_state.molecule_image)
+        plt.close(st.session_state.molecule_image)
 
     ##### Matching Table #####
-    if st.session_state.selected != []:
-        st.dataframe(styled_df,
-                     column_order=("shift", "shape", "coupling"),
+    if "matching_table" not in st.session_state:
+        st.session_state.matching_table = None
+
+    if st.session_state.matching_table != None:
+        st.dataframe(st.session_state.matching_table,
+                     column_order=("shift", "shape", "coupling", "amount"),
                      column_config={
                         "shift": "Shift",
                         "shape": "Shape",
-                        "coupling": "Coupling Constants"
+                        "coupling": "Coupling Constants",
+                        "amount": "Amount"
                         },
                      hide_index=True)
-        
 
-    with st.expander("See Peak Match Table"):
-        if st.session_state.selected != []:
-            st.session_state.atom_idx = np.array([peak[0] for peak in st.session_state.predicted_peak_table])
-            table = []
-            for i in range(len(st.session_state.atom_idx)):
-                match = {}
-                match = st.session_state.observed_peaks[st.session_state.selected[i][1]].copy()
-                match["atom_idx"] = st.session_state.atom_idx[i]
-                table.append(match)
-
-            st.dataframe(table,
-                        column_config={"atom_idx": "Atom Index", 
-                                        "shift": "Shift", 
-                                        "shape": "Shape", 
-                                        "coupling": "Coupling Constants"},
-                        column_order=("atom_idx", "shift", "shape", "coupling"))
-        
+    ##### Memory Table #####
+    if not st.session_state.memory_df.empty:
+        st.dataframe(st.session_state.memory_df,
+                     column_config={
+                         "Image": st.column_config.ImageColumn("Molecule Image")
+                         },
+                         hide_index=True)
 
 
 with col3:
@@ -338,4 +370,10 @@ with col3:
 
     if st.button("Minimize Distance"):
         st.session_state.selected, st.session_state.total_cost = minimize_distance(st.session_state.distance_matrix, st.session_state.observed_peak_amount)
+        data_row = pd.DataFrame({"Image": st.session_state.img_base64,
+                                     "Molecule": smiles,
+                                     "Distance": st.session_state.total_cost
+                                     }, index = [0])
+            
+        st.session_state.memory_df = pd.concat([st.session_state.memory_df, data_row], ignore_index=True)
         st.rerun()
