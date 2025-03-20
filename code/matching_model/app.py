@@ -245,6 +245,9 @@ with col2:
     if "img_base64" not in st.session_state:
         st.session_state.img_base64 = None
 
+    if "data_row" not in st.session_state:
+        st.session_state.data_row = pd.DataFrame()
+
     if st.session_state.selected != []:
         colored_df = st.session_state.observed_peaks_df.copy()
         
@@ -274,13 +277,19 @@ with col2:
             st.session_state.colors_in_order = []
             color_per_idx = None
             st.session_state.molecule_image = draw_mol_image(smiles, color_per_idx)
-            
-
+            st.session_state.data_row = pd.DataFrame()
 
     if st.session_state.molecule_image:
         st.write("Molecule:")
         st.pyplot(st.session_state.molecule_image)
         st.session_state.img_base64 = fig_to_base64(st.session_state.molecule_image)
+        if st.session_state.data_row.empty and st.session_state.selected != []:
+            st.session_state.data_row = pd.DataFrame({"Image": st.session_state.img_base64,
+                                                        "Molecule": smiles,
+                                                        "Distance": st.session_state.total_cost
+                                                        }, index = [0])
+                
+            st.session_state.memory_df = pd.concat([st.session_state.memory_df, st.session_state.data_row], ignore_index=True)
         plt.close(st.session_state.molecule_image)
 
     ##### Matching Table #####
@@ -370,10 +379,4 @@ with col3:
 
     if st.button("Minimize Distance"):
         st.session_state.selected, st.session_state.total_cost = minimize_distance(st.session_state.distance_matrix, st.session_state.observed_peak_amount)
-        data_row = pd.DataFrame({"Image": st.session_state.img_base64,
-                                     "Molecule": smiles,
-                                     "Distance": st.session_state.total_cost
-                                     }, index = [0])
-            
-        st.session_state.memory_df = pd.concat([st.session_state.memory_df, data_row], ignore_index=True)
         st.rerun()

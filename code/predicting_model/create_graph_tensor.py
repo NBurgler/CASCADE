@@ -568,16 +568,8 @@ def create_tensors(path, name, type="Shift"):
             test_data.write(example.SerializeToString())
 
 
-def create_single_tensor(mol_data, atom_data, bond_data, distance_data, shift_data=None):
-    if shift_data is None:
-        if "n_distance" not in mol_data.columns:
-            mol_data.insert(5, "n_distance", len(distance_data["distance"]))
-        graph_tensor = create_graph_tensor_shift(mol_data, atom_data, bond_data, distance_data)
-    else :
-        if "n_distance" not in mol_data.columns:
-            mol_data.insert(5, "n_distance", len(distance_data["distance"]))
-        graph_tensor = create_graph_tensor_combined(mol_data, atom_data, bond_data, distance_data, shift_data)
-
+def create_single_tensor(mol_data, atom_data, bond_data, distance_data):
+    graph_tensor = create_graph_tensor_complete(mol_data, atom_data, bond_data, distance_data)
     example = tfgnn.write_example(graph_tensor)
     return example.SerializeToString()
 

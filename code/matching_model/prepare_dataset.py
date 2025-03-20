@@ -113,7 +113,7 @@ def create_tensors(path):
             shift_sample = shift_data.loc[(predictions["mol_id"] == sample["mol_id"]) & (predictions["index"] == sample["atom_idx"])].iloc[0]
         else:
             shift_sample = shift_data.sample().iloc[0]
-            while(abs(shift_sample["predicted_shift"] - sample["Shift"]) <= 1.0):
+            while(abs(shift_sample["predicted_shift"] - sample["Shift"]) <= 1.0):   # Condition for finding non-matches
                 shift_sample = shift_data.sample().iloc[0]
 
             prediction = predictions[(predictions["mol_id"] == shift_sample["mol_id"]) & (predictions["index"] == shift_sample["index"])].iloc[0]

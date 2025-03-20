@@ -3,6 +3,7 @@ import tensorflow_gnn as tfgnn
 import numpy as np
 import pandas as pd
 from tqdm import tqdm
+import pulp
 from pulp import LpMinimize, LpProblem, LpVariable, lpSum, PULP_CBC_CMD
 import ast
 
@@ -62,6 +63,16 @@ def predict_shape_and_coupling(path, input_dict):
     
     return shape_logits, coupling_logits
 
+def predict_all(path, input_dict):
+    shape_model = tf.saved_model.load(path + "code/predicting_model/gnn/models/predicting_model_6_3")
+    signature_fn = shape_model.signatures[tf.saved_model.DEFAULT_SERVING_SIGNATURE_DEF_KEY]
+    output_dict = signature_fn(**input_dict)
+    shift_logits = output_dict["shift"]
+    shape_logits = output_dict["shape"]
+    coupling_logits = np.round(output_dict["coupling_constants"], 2)
+    
+    return shift_logits, shape_logits, coupling_logits
+
 
 # From a smiles, create the necessary features and predict shift, shape, and coupling constants. Returns all predicted peaks
 def predict_peaks(smiles="C#CCC1CCOCO1"):
@@ -73,18 +84,13 @@ def predict_peaks(smiles="C#CCC1CCOCO1"):
     if mol_df is None:
         return None, None
 
+    mol_df.insert(5, "n_distance", len(distance_df["distance"]))
     example = create_graph_tensor.create_single_tensor(mol_df, atom_df, bond_df, distance_df)   # Create tensor for shift prediction
     example = tf.reshape(example, (1,))
     input_dict = {"examples": example}
-    shifts = np.squeeze(predict_shift(path, input_dict).numpy())
 
-    shift_df = atom_df.copy()
-    shift_df.loc[shift_df["atom_symbol"] == "H", "Shift"] = shifts
-
-    example = create_graph_tensor.create_single_tensor(mol_df, atom_df, bond_df, distance_df, shift_df) # Create tensor for shape/coupling prediction
-    example = tf.reshape(example, (1,))
-    input_dict = {"examples": example}
-    shapes, couplings = predict_shape_and_coupling(path, input_dict)
+    shifts, shapes, couplings = predict_all(path, input_dict)
+    shifts = np.squeeze(shifts.numpy())
     shapes = shapes.numpy()
 
     predicted_peaks = []
@@ -95,7 +101,7 @@ def predict_peaks(smiles="C#CCC1CCOCO1"):
                         "coupling": couplings[idx].flatten()}
         predicted_peaks.append(predicted_peak)
 
-    atom_idx = shift_df.loc[shift_df["atom_symbol"] == "H"].index.to_numpy()
+    atom_idx = atom_df.loc[atom_df["atom_symbol"] == "H"].index.to_numpy()
     return predicted_peaks, atom_idx
 
 
